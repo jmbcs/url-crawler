@@ -255,10 +255,12 @@ apex, with no link from the `www` host; the wide scope is a two-line change to `
 ### robots.txt on by default, `rel="nofollow"` followed
 
 robots.txt is fetched once for the final seed host, parsed with `urllib.robotparser`, and applied to
-every candidate URL before it enters the frontier. Fetch failures and undecodable bodies fail open
-and log at INFO, because an unreadable robots.txt is not a prohibition. A `Crawl-delay` is honoured
-by serializing a sleep across the workers. When robots.txt blocks the seed itself, the run exits 3
-with a message that names `--ignore-robots`.
+every candidate URL before it enters the frontier. The seed itself is the one URL fetched before
+robots.txt is read, because its redirect chain decides which host's robots.txt applies; if that file
+then disallows the seed, the run stops there with exit code 3. Fetch failures and undecodable bodies
+fail open and log at INFO, because an unreadable robots.txt is not a prohibition. A `Crawl-delay` is
+honoured by serializing a sleep across the workers. When robots.txt blocks the seed itself, the run
+exits 3 with a message that names `--ignore-robots`.
 
 `rel="nofollow"` links are followed and printed. `nofollow` is a hint to search engines about link
 equity, not an access control; robots.txt is the access control, and this tool obeys that one.
