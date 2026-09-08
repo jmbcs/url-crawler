@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -17,6 +18,7 @@ from url_crawler.config import CrawlConfig
 from url_crawler.crawler import Crawler, CrawlOutcome, SeedError
 from url_crawler.fetcher import Fetcher
 from url_crawler.models import CrawlStats
+from url_crawler.progress import ProgressLine, format_banner
 from url_crawler.reporting import JsonlReporter, Reporter, TextReporter
 from url_crawler.robots import load_robots
 from url_crawler.urls import ALLOWED_SCHEMES
@@ -66,6 +68,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(exc))
     if seed != args.url:
         log.info("assuming https:// for %s", args.url)
+    stderr_isatty = sys.stderr.isatty()
+    if _banner_enabled(args, stderr_isatty):
+        print(format_banner(seed, config, args.format, __version__), file=sys.stderr)
 
     stats = CrawlStats()
     reporter: Reporter = (
@@ -74,7 +79,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     started = time.monotonic()
     try:
-        exit_code = asyncio.run(_crawl(seed, config, stats, reporter))
+        exit_code = asyncio.run(
+            _crawl(seed, config, stats, reporter, progress=_progress_enabled(args, stderr_isatty))
+        )
     except SeedError as exc:
         log.error("%s", exc)
         exit_code = exc.exit_code
@@ -90,7 +97,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     return exit_code
 
 
-async def _crawl(seed: str, config: CrawlConfig, stats: CrawlStats, reporter: Reporter) -> int:
+def _banner_enabled(args: argparse.Namespace, stderr_isatty: bool) -> bool:
+    return not args.quiet and (stderr_isatty or args.verbose >= 1)
+
+
+def _progress_enabled(args: argparse.Namespace, stderr_isatty: bool) -> bool:
+    return stderr_isatty and args.verbose == 0 and not args.quiet
+
+
+async def _crawl(
+    seed: str,
+    config: CrawlConfig,
+    stats: CrawlStats,
+    reporter: Reporter,
+    *,
+    progress: bool,
+) -> int:
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=CONNECT_TIMEOUT_SECONDS,
@@ -114,11 +136,22 @@ async def _crawl(seed: str, config: CrawlConfig, stats: CrawlStats, reporter: Re
         )
         task = asyncio.create_task(crawler.run(seed))
         _cancel_on_signal(task)
+        progress_line = (
+            ProgressLine(sys.stderr, stats, lambda: crawler.pending) if progress else None
+        )
+        progress_task = asyncio.create_task(progress_line.run()) if progress_line else None
         try:
             outcome = await task
         except asyncio.CancelledError:
+            if progress_line is not None:
+                progress_line.clear()
             log.warning("interrupted; reporting the pages crawled so far")
             return EXIT_INTERRUPTED
+        finally:
+            if progress_task is not None:
+                progress_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await progress_task
         if outcome.aborted:
             return EXIT_ABORTED
         return EXIT_OK
@@ -185,6 +218,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=("text", "jsonl"), default="text", help="output format")
     parser.add_argument(
         "--ignore-robots", action="store_true", help="crawl paths that robots.txt disallows"
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="suppress the start banner and the progress line"
     )
     parser.add_argument(
         "-v",

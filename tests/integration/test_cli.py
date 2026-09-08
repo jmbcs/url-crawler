@@ -17,6 +17,7 @@ import pytest
 
 from tests.fakesite.server import base_url, serve
 from tests.fakesite.site import FakeSite
+from url_crawler import __version__
 
 CLI = [sys.executable, "-m", "url_crawler"]
 LOG_PREFIXES = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -83,6 +84,7 @@ def test_help_lists_the_flags() -> None:
         "--max-bytes",
         "--format",
         "--ignore-robots",
+        "--quiet",
         "-v",
         "--version",
     )
@@ -115,6 +117,26 @@ def test_default_verbosity_logs_nothing(site_url: str) -> None:
     result = run_cli(site_url)
     logged = [line for line in result.stderr.splitlines() if line.startswith(LOG_PREFIXES)]
     assert logged == []
+
+
+def test_banner_goes_to_stderr_and_progress_stays_off_a_pipe(site_url: str) -> None:
+    result = run_cli(site_url, "-v")
+    assert result.returncode == 0
+    assert (
+        f"url-crawler {__version__}: crawling {site_url} with 10 workers "
+        "(robots.txt on, text output)" in result.stderr
+    )
+    assert "Results stream to stdout as pages complete." in result.stderr
+    assert "\r" not in result.stderr
+    assert "url-crawler" not in result.stdout
+
+
+def test_quiet_suppresses_the_banner_but_keeps_the_summary(site_url: str) -> None:
+    result = run_cli(site_url, "--quiet", "-v")
+    assert result.returncode == 0
+    assert f"url-crawler {__version__}: crawling" not in result.stderr
+    assert "\r" not in result.stderr
+    assert SUMMARY_PATTERN.search(result.stderr) is not None
 
 
 def test_off_scope_links_are_printed_but_not_crawled(site_url: str) -> None:

@@ -71,6 +71,10 @@ class Crawler:
         self._aborted = False
         self._reason: str | None = None
 
+    @property
+    def pending(self) -> int:
+        return len(self._frontier)
+
     async def run(self, seed: str) -> CrawlOutcome:
         start = normalize(seed)
         if start is None:

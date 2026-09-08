@@ -5,7 +5,13 @@ import argparse
 import pytest
 
 from url_crawler import __version__
-from url_crawler.cli import build_parser, main, prepare_seed
+from url_crawler.cli import (
+    _banner_enabled,
+    _progress_enabled,
+    build_parser,
+    main,
+    prepare_seed,
+)
 
 
 def parse(argv: list[str]) -> argparse.Namespace:
@@ -21,6 +27,7 @@ def test_defaults() -> None:
     assert args.max_bytes == 5_000_000
     assert args.format == "text"
     assert args.ignore_robots is False
+    assert args.quiet is False
     assert args.verbose == 0
 
 
@@ -39,12 +46,14 @@ def test_flags_are_parsed() -> None:
             "--format",
             "jsonl",
             "--ignore-robots",
+            "--quiet",
             "-v",
         ]
     )
     assert (args.concurrency, args.timeout, args.max_pages, args.max_bytes) == (3, 2.5, 7, 1024)
     assert args.format == "jsonl"
     assert args.ignore_robots is True
+    assert args.quiet is True
     assert args.verbose == 1
 
 
@@ -102,3 +111,29 @@ def test_version_prints_the_package_version(capsys: pytest.CaptureFixture[str]) 
         parse(["--version"])
     assert exit_info.value.code == 0
     assert __version__ in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "stderr_isatty", "expected"),
+    [
+        (["http://example.com"], True, True),
+        (["http://example.com"], False, False),
+        (["http://example.com", "-v"], True, False),
+        (["http://example.com", "--quiet"], True, False),
+    ],
+)
+def test_progress_enabled(argv: list[str], stderr_isatty: bool, expected: bool) -> None:
+    assert _progress_enabled(parse(argv), stderr_isatty) is expected
+
+
+@pytest.mark.parametrize(
+    ("argv", "stderr_isatty", "expected"),
+    [
+        (["http://example.com"], True, True),
+        (["http://example.com"], False, False),
+        (["http://example.com", "-v"], False, True),
+        (["http://example.com", "--quiet", "-v"], True, False),
+    ],
+)
+def test_banner_enabled(argv: list[str], stderr_isatty: bool, expected: bool) -> None:
+    assert _banner_enabled(parse(argv), stderr_isatty) is expected
