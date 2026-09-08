@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Unclosed anchor</title></head>
+<body>
+  <a href="/before">closed anchor</a>
+  <a href="/spanning">
+    <div>
+      <h2>Block content inside a never closed anchor</h2>
+      <p>The anchor start tag is never matched by an end tag.</p>
+    </div>
+  <p>Still inside the anchor as far as the source is concerned.</p>
+  <a href="/after">next anchor</a>
+</body>
+</html>

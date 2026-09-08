@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Image map</title></head>
+<body>
+  <a href="/plain">before the map</a>
+  <img src="/static/floorplan.png" alt="floor plan" usemap="#rooms">
+  <map name="rooms">
+    <area shape="rect" coords="0,0,50,50" href="/rooms/kitchen" alt="kitchen">
+    <area shape="rect" coords="50,0,100,50" href="/rooms/hall" alt="hall">
+    <area shape="default" alt="nothing here">
+  </map>
+  <a href="/plain">after the map</a>
+</body>
+</html>
