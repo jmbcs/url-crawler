@@ -9,13 +9,7 @@ import pytest
 
 from url_crawler.config import CrawlConfig
 from url_crawler.models import CrawlStats
-from url_crawler.progress import (
-    ERASE_LINE,
-    JOB_API_NOTICE,
-    ProgressLine,
-    format_banner,
-    format_progress,
-)
+from url_crawler.progress import ERASE_LINE, ProgressLine, format_banner, format_progress
 
 
 class FakeClock:
@@ -78,7 +72,8 @@ def test_format_banner(config: CrawlConfig, output_format: str, expected_first_l
     assert banner.splitlines() == [
         expected_first_line,
         "Results stream to stdout as pages complete. Ctrl-C stops and keeps what was crawled.",
-        JOB_API_NOTICE,
+        "Long or unattended crawl? Run it as a job with url-crawler-api and url-crawler-worker; "
+        'see README, "Crawl service".',
     ]
 
 

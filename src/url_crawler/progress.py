@@ -10,8 +10,8 @@ from url_crawler.models import CrawlStats
 
 ERASE_LINE = "\x1b[K"
 JOB_API_NOTICE = (
-    "Long or unattended crawl? A job API that runs crawls in the background is planned; "
-    'see README, "Extending to multiple domains".'
+    "Long or unattended crawl? Run it as a job with url-crawler-api and url-crawler-worker; "
+    'see README, "Crawl service".'
 )
 
 
