@@ -554,10 +554,11 @@ The exercise asks for this in detail, so it is a section rather than a sentence.
 
 ### IDE and local tooling
 
-Editor and version: <!-- TODO: author fills in -->. Python 3.12 pinned by `.python-version`, `uv` for
-dependency resolution with the committed `uv.lock`, `ruff` for lint and format, `mypy --strict` over
-`src/` and `tests/`, `pre-commit` running ruff and mypy on every commit, `make check` as the local
-gate and GitHub Actions as the remote one.
+Editor: Visual Studio Code, used as an editor only; every AI interaction ran through Claude Code in
+its integrated terminal. Python 3.12 pinned by `.python-version`, `uv` for dependency resolution
+with the committed `uv.lock`, `ruff` for lint and format, `mypy --strict` over `src/` and `tests/`,
+`pre-commit` running ruff and mypy on every commit, `make check` as the local gate and GitHub
+Actions as the remote one.
 
 ### Learning the subject
 
@@ -584,7 +585,8 @@ The interactive AI in this project was Claude Code in a terminal, used conversat
 design discussion first, then implementation, then this README. It is described in the next section
 because it is also where the multi-agent workflow lived.
 
-Editor AI assistant, if any, and what it did: <!-- TODO: author fills in -->.
+No editor assistant was used. There was no Copilot and no inline completion; the terminal session
+described below was the only AI in the workflow.
 
 ### Other AI tools
 
@@ -592,8 +594,8 @@ The code and this README were produced with Claude Code in a multi-agent workflo
 architect agents proposed candidate architectures, critic agents attacked them, judge agents scored
 the comparison, writer agents then implemented one module each against a shared interface contract,
 and reviewer agents checked the result. The design document came first and was settled before any
-code was written. I reviewed and approved that design, and every decision listed in the design
-section above is one I read and signed off on. <!-- TODO: author confirms or edits -->
+code was written. I reviewed the design document and every decision in the design section above
+before any code was written, and I approved the interface contract the writer agents worked from.
 
 Two places where the process caught itself, which is the part worth reporting. An early pass proposed
 classifying retryable errors with `isinstance(exc, httpx.TransportError)`; the critic pass caught that
@@ -606,12 +608,13 @@ two of which the critic flagged as likely stale; those were thrown out and the p
 ### What AI drafted and what was written by hand
 
 Claude Code drafted every file here: the package, the tests, the fake site, the benchmark and this
-README. My contribution was direction and judgement rather than typing: framing the exercise, picking
-one of three candidate architectures, settling the three interpretation calls at the top of this
-README, and accepting or rejecting each design decision on its merits. Nothing was merged that I had
-not read. <!-- TODO: author confirms or edits --> A reviewer grading this section on candour should
-read it as "AI wrote the lines, I chose what the lines should say", not as a claim that any
-particular module was typed by hand.
+README. My contribution was direction and judgement rather than typing: framing the exercise,
+picking one of three candidate architectures, settling the three interpretation calls at the top of
+this README, and accepting or rejecting each design decision on its merits. I read the design
+document and this README closely and spot-checked the code and tests rather than reading every line;
+the test suite, ruff and mypy stood in for a line-by-line review. A reviewer grading this section on
+candour should read it as "AI wrote the lines, I chose what the lines should say", not as a claim
+that any particular module was typed by hand.
 
 ### How AI output was verified
 
