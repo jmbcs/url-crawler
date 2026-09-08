@@ -49,11 +49,38 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: make cov
 
+  service:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: crawler
+          POSTGRES_PASSWORD: crawler
+          POSTGRES_DB: crawler
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crawler -d crawler"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 15
+    env:
+      URL_CRAWLER_TEST_DATABASE_URL: postgresql+asyncpg://crawler:crawler@localhost:5432/crawler
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv run pytest tests/service -q --cov --cov-report=term-missing
+
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: make docker
+      - run: docker build --target service -t url-crawler-service .
+      - run: docker run --rm url-crawler-service alembic heads
 
   smoke:
     if: github.event_name == 'workflow_dispatch'
