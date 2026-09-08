@@ -11,12 +11,11 @@ import time
 from collections.abc import Sequence
 from functools import partial
 
-import httpx
-
 from url_crawler import __version__
 from url_crawler.config import CrawlConfig
 from url_crawler.crawler import Crawler, CrawlOutcome, SeedError
 from url_crawler.fetcher import Fetcher
+from url_crawler.http import build_client
 from url_crawler.models import CrawlStats
 from url_crawler.progress import ProgressLine, format_banner
 from url_crawler.reporting import JsonlReporter, Reporter, TextReporter
@@ -30,8 +29,6 @@ EXIT_INTERNAL = 1
 EXIT_ABORTED = 4
 EXIT_INTERRUPTED = 130
 
-CONNECT_TIMEOUT_SECONDS = 5.0
-POOL_TIMEOUT_SECONDS = 5.0
 LOG_LEVELS = (logging.WARNING, logging.INFO, logging.DEBUG)
 CANCEL_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 DEFAULTS = CrawlConfig()
@@ -113,20 +110,7 @@ async def _crawl(
     *,
     progress: bool,
 ) -> int:
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(
-            connect=CONNECT_TIMEOUT_SECONDS,
-            read=config.timeout,
-            write=config.timeout,
-            pool=POOL_TIMEOUT_SECONDS,
-        ),
-        limits=httpx.Limits(
-            max_connections=config.concurrency,
-            max_keepalive_connections=config.concurrency,
-        ),
-        follow_redirects=False,
-        headers={"user-agent": config.user_agent},
-    ) as client:
+    async with build_client(config) as client:
         crawler = Crawler(
             Fetcher(client, max_bytes=config.max_bytes),
             reporter,
