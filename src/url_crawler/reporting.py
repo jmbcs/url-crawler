@@ -62,7 +62,7 @@ class JsonlReporter:
             "links_found": stats.links_found,
             "duplicates_dropped": stats.duplicates_dropped,
             "retries": stats.retries,
-            "elapsed_seconds": elapsed_seconds,
+            "elapsed_seconds": round(elapsed_seconds, 3),
         }
         self._stream.write(json.dumps({"summary": summary}, ensure_ascii=False) + "\n")
         self._stream.flush()

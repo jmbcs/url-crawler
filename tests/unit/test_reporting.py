@@ -163,7 +163,7 @@ def test_jsonl_reporter_finish() -> None:
     )
     stats.pages_failed["timeout"] += 1
 
-    reporter.finish(stats, 2.5)
+    reporter.finish(stats, 2.5001234)
 
     assert json.loads(stream.getvalue()) == {
         "summary": {
