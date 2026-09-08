@@ -1,0 +1,160 @@
+import pytest
+
+from url_crawler.urls import MAX_URL_LENGTH, canonical_key, normalize, resolve_href
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("HTTP://EXAMPLE.com/Path", "http://example.com/Path"),
+        ("HTTPS://Example.COM/", "https://example.com/"),
+        ("http://example.com", "http://example.com/"),
+        ("http://example.com?q=1", "http://example.com/?q=1"),
+        ("http://example.com:80/a", "http://example.com/a"),
+        ("https://example.com:443/a", "https://example.com/a"),
+        ("http://example.com:8080/a", "http://example.com:8080/a"),
+        ("https://example.com:80/a", "https://example.com:80/a"),
+        ("http://example.com/a#section-2", "http://example.com/a"),
+        ("http://example.com/#", "http://example.com/"),
+        ("http://example.com/dir/", "http://example.com/dir/"),
+        ("http://example.com/dir", "http://example.com/dir"),
+        ("  http://example.com/a  ", "http://example.com/a"),
+        ("\n\thttps://example.com/a\n", "https://example.com/a"),
+        ("http://example.com/?b=2&a=1", "http://example.com/?b=2&a=1"),
+        ("http://example.com/?utm_source=x&ref=y", "http://example.com/?utm_source=x&ref=y"),
+        ("http://example.com/?empty=", "http://example.com/?empty="),
+        ("http://User:Pass@example.com/a", "http://User:Pass@example.com/a"),
+        ("http://user@example.com:80/", "http://user@example.com/"),
+        ("http://example.com/a%20b", "http://example.com/a%20b"),
+        ("http://example.com/Caf%C3%A9", "http://example.com/Caf%C3%A9"),
+        ("http://[::1]:8080/x", "http://[::1]:8080/x"),
+        ("http://[::1]:80/x", "http://[::1]/x"),
+    ],
+)
+def test_normalize_canonical_form(url: str, expected: str) -> None:
+    assert normalize(url) == expected
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "mailto:someone@example.com",
+        "tel:+15550100",
+        "javascript:void(0)",
+        "JavaScript:alert(1)",
+        "data:text/html,<b>x</b>",
+        "ftp://example.com/file.txt",
+        "file:///etc/hosts",
+        "http:///only-a-path",
+        "http://",
+        "http://exa mple.com/",
+        "http:// example.com/",
+        "/relative/path",
+        "example.com",
+        "",
+        "   ",
+        "http://example.com:port/",
+        "http://[::1/",
+    ],
+)
+def test_normalize_rejects(url: str) -> None:
+    assert normalize(url) is None
+
+
+def test_normalize_accepts_url_at_length_limit() -> None:
+    prefix = "http://example.com/"
+    url = prefix + "a" * (MAX_URL_LENGTH - len(prefix))
+    assert normalize(url) == url
+
+
+def test_normalize_rejects_url_over_length_limit() -> None:
+    url = "http://example.com/" + "a" * MAX_URL_LENGTH
+    assert normalize(url) is None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "HTTP://EXAMPLE.com/Path?b=2&a=1#frag",
+        "http://example.com:80/dir/",
+        "http://user@example.com/a",
+    ],
+)
+def test_normalize_is_idempotent(url: str) -> None:
+    once = normalize(url)
+    assert once is not None
+    assert normalize(once) == once
+
+
+BASE = "https://example.com/docs/guide.html"
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        ("page.html", "https://example.com/docs/page.html"),
+        ("./page.html", "https://example.com/docs/page.html"),
+        ("/page.html", "https://example.com/page.html"),
+        ("../up.html", "https://example.com/up.html"),
+        ("../../way/up.html", "https://example.com/way/up.html"),
+        ("sub/deep.html", "https://example.com/docs/sub/deep.html"),
+        ("//cdn.example.com/x", "https://cdn.example.com/x"),
+        ("http://other.test/x", "http://other.test/x"),
+        ("  /spaced  ", "https://example.com/spaced"),
+        ("\n\t/newline\n", "https://example.com/newline"),
+        ("#top", BASE),
+        ("", BASE),
+        ("?q=1", "https://example.com/docs/guide.html?q=1"),
+        ("/other#frag", "https://example.com/other"),
+        ("/A/B?z=1", "https://example.com/A/B?z=1"),
+    ],
+)
+def test_resolve_href(href: str, expected: str) -> None:
+    assert resolve_href(href, BASE) == expected
+
+
+@pytest.mark.parametrize(
+    "href",
+    ["mailto:someone@example.com", "javascript:void(0)", "tel:+15550100", "data:,x", "ftp://a/b"],
+)
+def test_resolve_href_rejects(href: str) -> None:
+    assert resolve_href(href, BASE) is None
+
+
+def test_resolve_href_against_protocol_relative_base_keeps_http() -> None:
+    assert resolve_href("//cdn.example.com/x", "http://example.com/") == "http://cdn.example.com/x"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://example.com/?b=2&a=1", "https://example.com/?a=1&b=2"),
+        ("https://example.com/?a=1&b=2", "https://example.com/?a=1&b=2"),
+        ("https://example.com/?z=1&z=0", "https://example.com/?z=0&z=1"),
+        ("https://example.com/", "https://example.com/"),
+        ("https://example.com/a/b", "https://example.com/a/b"),
+        ("https://example.com/a?single=1", "https://example.com/a?single=1"),
+        ("http://user@example.com/a?b=2&a=1", "http://user@example.com/a?a=1&b=2"),
+    ],
+)
+def test_canonical_key(url: str, expected: str) -> None:
+    assert canonical_key(url) == expected
+
+
+def test_canonical_key_matches_for_reordered_query() -> None:
+    assert canonical_key("https://example.com/s?b=2&a=1") == canonical_key(
+        "https://example.com/s?a=1&b=2"
+    )
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        ("https://example.com/A", "https://example.com/a"),
+        ("https://example.com/a", "https://example.com/a/"),
+        ("https://example.com/a?x=1", "https://example.com/a?x=2"),
+        ("https://example.com/a", "http://example.com/a"),
+    ],
+)
+def test_canonical_key_distinguishes(left: str, right: str) -> None:
+    assert canonical_key(left) != canonical_key(right)
