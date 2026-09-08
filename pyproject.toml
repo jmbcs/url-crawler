@@ -1,6 +1,6 @@
 [project]
 name = "url-crawler"
-version = "0.1.0"
+version = "0.2.0"
 description = "Concurrent same-domain web crawler that prints every page and the links found on it"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,13 +13,15 @@ dependencies = [
 
 [project.scripts]
 url-crawler = "url_crawler.cli:main"
+url-crawler-api = "url_crawler_service.api:main"
+url-crawler-worker = "url_crawler_service.worker:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/url_crawler"]
+packages = ["src/url_crawler", "src/url_crawler_service"]
 
 [tool.ruff]
 line-length = 100
@@ -45,13 +47,23 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 timeout = 30
 addopts = "-m 'not network' --strict-markers"
-markers = ["network: hits a real website; run with -m network"]
+markers = [
+    "network: hits a real website; run with -m network",
+    "postgres: needs a Postgres at URL_CRAWLER_TEST_DATABASE_URL",
+]
 
 [tool.coverage.run]
-source = ["url_crawler"]
+source = ["url_crawler", "url_crawler_service"]
 branch = true
 
 [dependency-groups]
+service = [
+    "alembic>=1.13",
+    "asyncpg>=0.30",
+    "fastapi>=0.115",
+    "sqlalchemy[asyncio]>=2.0",
+    "uvicorn>=0.30",
+]
 dev = [
     "mypy>=2.3.1",
     "pytest>=9.1.1",
@@ -59,4 +71,5 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.4.0",
     "ruff>=0.16.6",
+    { include-group = "service" },
 ]
