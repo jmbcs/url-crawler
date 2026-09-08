@@ -142,7 +142,7 @@ page instead of a cancelled `TaskGroup`.
 
 | Module | Responsibility |
 | --- | --- |
-| `cli.py` | argparse flags, seed scheme handling, object wiring, SIGINT and SIGTERM, exit codes, stderr summary |
+| `cli.py` | argparse flags, seed scheme handling, object wiring, SIGINT and SIGTERM, exit codes, banner and progress line, stderr summary |
 | `config.py` | frozen `CrawlConfig`, validated once in `__post_init__` |
 | `crawler.py` | seed redirect chain, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
 | `frontier.py` | `asyncio.Queue` plus a set of canonical keys: dedup, backlog size, termination |
@@ -153,6 +153,7 @@ page instead of a cancelled `TaskGroup`.
 | `robots.py` | fetch and parse robots.txt once, `Crawl-delay`, fail open |
 | `reporting.py` | `Reporter` protocol with a text and a JSONL implementation |
 | `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats` |
+| `progress.py` | start banner and the redrawing progress line, both stderr and TTY-only |
 
 ## Flags
 
@@ -165,11 +166,25 @@ page instead of a cancelled `TaskGroup`.
 | `--max-bytes BYTES` | `5000000` | Skip a page whose body exceeds this, by header or while streaming. |
 | `--format {text,jsonl}` | `text` | JSONL emits one object per page plus a final summary object. |
 | `--ignore-robots` | off | Crawl paths robots.txt disallows. |
+| `--quiet` | off | Suppress the start banner and the progress line. The summary still prints. |
 | `-v`, `-vv` | quiet | `-v` logs at INFO, `-vv` at DEBUG (including every link printed but not followed). |
 | `--version` | | Print the version and exit. |
 
 There are no environment variables and no config file. Flags are the whole configuration surface,
 which keeps a run reproducible from its command line.
+
+Two things print to stderr when it is a terminal, so a slow seed does not look like a hang: a
+three-line start banner before the crawl, and a one-line progress counter that redraws in place
+about three times a second. The banner also prints under `-v` in a pipe, because a log-level run
+asked for context; the progress line never does, so a redirect or a CI log stays free of `\r`.
+`--quiet` turns both off. Stdout carries results and nothing else in every case.
+
+```
+url-crawler 0.1.0: crawling https://example.com with 10 workers (robots.txt on, text output)
+Results stream to stdout as pages complete. Ctrl-C stops and keeps what was crawled.
+Long or unattended crawl? A job API that runs crawls in the background is planned; see README, "Extending to multiple domains".
+pages 143 (2 failed) | queued 512 | links 3,904 | 48.1 pages/s | 3.0s
+```
 
 ## Exit codes
 
@@ -444,7 +459,7 @@ network in the default run.
 
 | Layer | Where | What it covers |
 | --- | --- | --- |
-| Unit, pure | `tests/unit/test_urls.py`, `test_scope.py`, `test_retry.py`, `test_parser.py`, `test_frontier.py`, `test_reporting.py`, `test_config.py`, `test_cli_args.py` | Parametrized tables for normalization, scope near-misses, retry classification, `Retry-After`, jitter bounds with a seeded rng, extraction from saved HTML fixtures, dedup, golden output |
+| Unit, pure | `tests/unit/test_urls.py`, `test_scope.py`, `test_retry.py`, `test_parser.py`, `test_frontier.py`, `test_reporting.py`, `test_config.py`, `test_cli_args.py`, `test_progress.py` | Parametrized tables for normalization, scope near-misses, retry classification, `Retry-After`, jitter bounds with a seeded rng, extraction from saved HTML fixtures, dedup, golden output, progress and banner formatting |
 | Test infrastructure | `tests/unit/test_fakesite.py`, `test_bench_smoke.py` | The fixtures themselves: the fake site's HTML root, its 500-then-200 flaky route, 404, PDF content type and redirect `Location`, query strings ignored for routing, off-host requests recorded as absolute URLs, the `EXPECTED_CRAWLED` and `NEVER_REQUESTED` sets kept consistent, the loopback server answering real GETs over one keep-alive connection, and the benchmark harness returning one row per concurrency level |
 | HTTP layer, mocked transport | `tests/unit/test_fetcher.py`, `test_robots.py` | `httpx.MockTransport` handlers: 500 then 200 with an asserted call count, 404 with no retry, 429 with `Retry-After`, three timeouts, PDF rejected without reading the body, oversize by header and mid-stream, 3xx returning `Location`, robots.txt failing open on 404, connect error and undecodable body |
 | Integration, in-process | `tests/integration/test_crawl.py` | The crawler against an ASGI fake site through `httpx.ASGITransport`: the exact set of crawled paths, exactly-once fetching, subdomain and external links printed but never requested, redirect chain, redirect cycle, off-host redirect, 404, 500-then-200, `<base href>`, malformed HTML, worker exception isolated, `--max-pages` drain, fuse trip, robots-blocked path, seed re-anchoring |
