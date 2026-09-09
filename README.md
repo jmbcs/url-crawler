@@ -121,7 +121,7 @@ Crawled 20 pages (17 ok, 3 failed) and found 26 links in 0.9s (22.1 pages/s); 1 
 {"url": "http://127.0.0.1:41295/missing", "status": 404, "links": [], "error": {"kind": "http_status", "status": 404, "message": "HTTP 404"}}
 {"url": "http://127.0.0.1:41295/redirect", "status": 301, "links": ["http://127.0.0.1:41295/redirected"], "error": null}
 {"url": "http://127.0.0.1:41295/file.pdf", "status": 200, "links": [], "error": {"kind": "unsupported_content", "status": 200, "message": "application/pdf"}}
-{"summary": {"pages_ok": 17, "pages_failed": {"http_status": 2, "unsupported_content": 1}, "pages_without_links": 5, "redirects": 4, "links_found": 26, "duplicates_dropped": 7, "retries": 1, "elapsed_seconds": 1.422}}
+{"summary": {"pages_ok": 17, "pages_failed": {"http_status": 2, "unsupported_content": 1}, "pages_without_links": 5, "redirects": 4, "links_found": 26, "duplicates_dropped": 7, "retries": 1, "pages_total": 20, "elapsed_seconds": 1.422}}
 ```
 
 ## Architecture
@@ -153,18 +153,18 @@ page instead of a cancelled `TaskGroup`.
 
 | Module | Responsibility |
 | --- | --- |
-| `cli.py` | argparse flags, seed scheme handling, object wiring, SIGINT and SIGTERM, exit codes, banner and progress line, stderr summary |
+| `cli.py` | argparse flags, object wiring, SIGINT and SIGTERM, exit codes, banner and progress line, stderr summary |
 | `config.py` | frozen `CrawlConfig`, validated once in `__post_init__` |
 | `crawler.py` | seed redirect chain, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
 | `frontier.py` | `asyncio.Queue` plus a set of canonical keys: dedup, backlog size, termination |
 | `fetcher.py` | one streaming GET per attempt, content-type and size gates, retry loop |
 | `retry.py` | pure classification, full-jitter backoff, `Retry-After` parsing |
 | `parser.py` | link extraction with selectolax, `<base href>`, per-page dedup in document order |
-| `urls.py` | `normalize`, `canonical_key`, `resolve_href`, `HostScope` |
+| `urls.py` | `prepare_seed`, `normalize`, `canonical_key`, `resolve_href`, `HostScope` |
 | `robots.py` | fetch and parse robots.txt once, `Crawl-delay`, fail open |
 | `http.py` | the one `httpx.AsyncClient` factory, shared by the CLI and the service worker |
 | `reporting.py` | `Reporter` protocol with a text and a JSONL implementation |
-| `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats` |
+| `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats`, and the `summary` both the JSONL output and the service store |
 | `progress.py` | start banner and the redrawing progress line, both stderr and TTY-only |
 
 `src/url_crawler_service/` holds the optional service and imports the core; the core never imports
@@ -215,44 +215,11 @@ pages 143 (2 failed) | queued 512 | links 3,904 | 48.1 pages/s | 3.0s
 
 ## Crawl service
 
-<details>
-<summary>Why a CLI stops fitting, and the API, worker and Postgres queue that replace it.</summary>
-
-### Why a CLI stops fitting
-
-Four axes, and any one of them is enough.
-
-*Lifetime.* A six-hour crawl bound to a terminal session dies with the SSH connection, and
-`--resume` is a workaround for the absence of a job.
-
-*Cross-process politeness.* Ten laptops each running a polite crawler are collectively a denial of
-service, and no amount of per-process courtesy fixes it. That axis alone forces a central service.
-
-*Machine consumption.* stdout is a poor API. A consumer wants the pages of crawl 47 since cursor X,
-not a re-run and a re-parse.
-
-*Multi-tenancy.* Quotas, authentication and an audit trail have nowhere to live in a process with no
-identity.
-
-So the service is job-shaped rather than stream-shaped. The crawl itself is still the `Crawler`
-class the CLI runs: the service adds a queue, a lease and a store around it, and changes nothing
-inside it.
-
-### Shape
-
-```mermaid
-flowchart LR
-    Client["client<br>curl, or any HTTP consumer"] --> Api["url-crawler-api<br>FastAPI: validate, read, cancel"]
-    Api --> Db[("postgres<br>crawl and page")]
-    Worker["url-crawler-worker<br>claim, heartbeat, reap"] --> Db
-    Worker --> Core["url_crawler.Crawler<br>the same crawl the CLI runs"]
-    Core --> Reporter["reporter.py<br>DbReporter, batched inserts"]
-    Reporter --> Db
-```
-
-The API never crawls: it validates a request, writes a row and reads rows back. The worker never
-serves HTTP: it claims a queued crawl, runs it, and heartbeats its lease while it does. Postgres is
-the only thing they share, so N workers are N processes and nothing coordinates them.
+An optional API and worker turn a crawl into a job. `POST /crawls` queues one, a worker claims it
+from Postgres and runs the same `Crawler` the CLI runs, and the pages are readable by cursor while
+the crawl is still going. The API never crawls and the worker never serves HTTP, so Postgres is the
+only thing they share. Both live in `src/url_crawler_service/`, behind the optional `service`
+dependency group.
 
 ### Run it
 
@@ -293,13 +260,86 @@ make worker       # url-crawler-worker, in another shell
 
 The request body is validated by pydantic and rejects unknown fields: `seed` is required,
 `concurrency` is 1 to 50, `timeout` is above 0 and at most 120 seconds, `max_pages` and `max_bytes`
-are at least 1, `respect_robots` defaults to true. The defaults are the CLI defaults, asserted by a
-test. The seed goes through the same `prepare_seed` and `normalize` the CLI uses, so
-`{"seed": "example.com"}` is stored as `https://example.com/`. OpenAPI is at `/docs`.
+are at least 1, `respect_robots` defaults to true. The defaults come from `CrawlConfig()`, so they
+are the CLI defaults, and a test asserts it. The seed goes through the same `prepare_seed` and
+`normalize` the CLI uses, both in `urls.py`, so `{"seed": "example.com"}` is stored as
+`https://example.com/`. OpenAPI is at `/docs`.
 
 The pages endpoint pages by keyset, not `OFFSET`. Rows keep arriving while a crawl runs, so an
 offset shifts every later page; a cursor over `(crawl_id, seq)` does not. The links of one page stay
 inside one item, so a consumer never sees half a page.
+
+### Configuration
+
+Every setting is an environment variable named after its field. A missing `DATABASE_URL` or an
+unparsable value exits 2 with a message naming the variable.
+
+| Variable | Default | Read by |
+| --- | --- | --- |
+| `DATABASE_URL` | required | api, worker, alembic |
+| `API_HOST` | `0.0.0.0` | api |
+| `API_PORT` | `8000` | api |
+| `WORKER_POLL_SECONDS` | `1.0` | worker, when the queue is empty or the database is unreachable |
+| `HEARTBEAT_SECONDS` | `5.0` | worker lease refresh and cancel check |
+| `LEASE_SECONDS` | `30.0` | reaper: how long silence is tolerated. The worker also gives up its own lease after this many seconds of failed heartbeats |
+| `MAX_ATTEMPTS` | `3` | reaper: requeue below this, fail at it |
+| `PAGE_BATCH_SIZE` | `100` | `DbReporter` size trigger |
+| `PAGE_FLUSH_SECONDS` | `0.2` | `DbReporter` time trigger |
+
+`DATABASE_URL` is a SQLAlchemy async URL, for example
+`postgresql+asyncpg://crawler:crawler@localhost:55432/crawler`.
+
+### Testing the service
+
+```bash
+make db-up          # postgres on :55432 plus the crawler_test database
+make test-service   # 68 tests against it; the suite migrates that database itself
+```
+
+They are marked `postgres` and skip when `URL_CRAWLER_TEST_DATABASE_URL` is unset, so `make test`
+stays offline and dependency-free. CI runs them in their own job against a Postgres service
+container. They use a real database rather than a fake: `SKIP LOCKED` and `RETURNING` are the parts
+most worth testing, and neither of them exists in a mock.
+
+<details>
+<summary>How it works: why a CLI stops fitting, the claim and lease design, what survives a database
+outage, cancel semantics, and what the service does not do yet.</summary>
+
+### Why a CLI stops fitting
+
+Four axes, and any one of them is enough.
+
+*Lifetime.* A six-hour crawl bound to a terminal session dies with the SSH connection, and
+`--resume` is a workaround for the absence of a job.
+
+*Cross-process politeness.* Ten laptops each running a polite crawler are collectively a denial of
+service, and no amount of per-process courtesy fixes it. That axis alone forces a central service.
+
+*Machine consumption.* stdout is a poor API. A consumer wants the pages of crawl 47 since cursor X,
+not a re-run and a re-parse.
+
+*Multi-tenancy.* Quotas, authentication and an audit trail have nowhere to live in a process with no
+identity.
+
+So the service is job-shaped rather than stream-shaped. The crawl itself is still the `Crawler`
+class the CLI runs: the service adds a queue, a lease and a store around it, and changes nothing
+inside it.
+
+### Shape
+
+```mermaid
+flowchart LR
+    Client["client<br>curl, or any HTTP consumer"] --> Api["url-crawler-api<br>FastAPI: validate, read, cancel"]
+    Api --> Db[("postgres<br>crawl and page")]
+    Worker["url-crawler-worker<br>claim, heartbeat, reap"] --> Db
+    Worker --> Core["url_crawler.Crawler<br>the same crawl the CLI runs"]
+    Core --> Reporter["reporter.py<br>DbReporter, batched inserts"]
+    Reporter --> Db
+```
+
+The API validates a request, writes a row and reads rows back. The worker claims a queued crawl,
+runs it, and heartbeats its lease while it does. Nothing coordinates the workers, so N workers are
+N processes.
 
 ### Data model
 
@@ -351,11 +391,28 @@ than `LEASE_SECONDS` is settled in one pass. A cancelled one becomes `aborted`, 
 On `SIGTERM` the worker does better than that: it cancels the crawl, writes the pages it has, and
 releases the row back to `queued` at once, so no lease period is lost. The attempt counter is left
 as it is, and only the reaper consults `MAX_ATTEMPTS`, so a rolling deploy re-runs the crawl instead
-of failing it.
+of failing it. A cancel request that raced the shutdown wins: the release matches only a row with
+`cancel_requested = false`, and when it matches nothing the worker records `aborted` instead.
+
+### Surviving a database outage
+
+The claim loop catches every exception, not only SQLAlchemy's. A Postgres that is down surfaces as
+`ConnectionRefusedError` or a DNS failure well before it is a `DBAPIError`, and either one used to
+end the worker process. It now logs the traceback, waits `WORKER_POLL_SECONDS` and polls again, so a
+database restart costs a poll interval. The compose file restarts the api and worker containers
+`unless-stopped`, for the crashes this does not cover.
 
 Pages are written by `DbReporter`, which buffers whatever the crawler reports and inserts it in one
 `executemany` when the buffer reaches `PAGE_BATCH_SIZE` or `PAGE_FLUSH_SECONDS` elapses. Its
-`page()` method never awaits, so a slow database slows the flusher and not the crawl loop.
+`page()` method never awaits, so a slow database slows the flusher and not the crawl loop. A failed
+insert keeps its rows in the buffer and the flusher retries them on the next tick. The flush after
+the crawl ends is the last attempt: if it fails, the crawl is recorded `failed` with that error, and
+a crawl that was cancelled keeps its own reason with the write error appended to it.
+
+Every insert is fenced by the lease. It locks the crawl row `FOR SHARE` and writes only while that
+row is still `running` under this worker id, in the same transaction. A worker whose lease was
+reaped raises `LeaseLost` instead of mixing its pages into the attempt another worker now owns; it
+logs a warning, records no terminal state, and leaves the row to its new owner.
 
 ### Cancel
 
@@ -369,26 +426,6 @@ known crawl, and 404 otherwise.
   `error = "cancelled by request"`. Partial results stay readable.
 - A finished, failed or already aborted crawl is left exactly as it is.
 
-### Configuration
-
-Every setting is an environment variable named after its field. A missing `DATABASE_URL` or an
-unparsable value exits 2 with a message naming the variable.
-
-| Variable | Default | Read by |
-| --- | --- | --- |
-| `DATABASE_URL` | required | api, worker, alembic |
-| `API_HOST` | `0.0.0.0` | api |
-| `API_PORT` | `8000` | api |
-| `WORKER_POLL_SECONDS` | `1.0` | worker, when the queue is empty |
-| `HEARTBEAT_SECONDS` | `5.0` | worker lease refresh and cancel check |
-| `LEASE_SECONDS` | `30.0` | reaper: how long silence is tolerated. The worker also gives up its own lease after this many seconds of failed heartbeats |
-| `MAX_ATTEMPTS` | `3` | reaper: requeue below this, fail at it |
-| `PAGE_BATCH_SIZE` | `100` | `DbReporter` size trigger |
-| `PAGE_FLUSH_SECONDS` | `0.2` | `DbReporter` time trigger |
-
-`DATABASE_URL` is a SQLAlchemy async URL, for example
-`postgresql+asyncpg://crawler:crawler@localhost:55432/crawler`.
-
 ### Modules
 
 | Module | Responsibility |
@@ -396,24 +433,13 @@ unparsable value exits 2 with a message naming the variable.
 | `settings.py` | `Settings.from_env()`, validation, `SettingsError` naming the bad variable |
 | `db.py` | declarative `Base`, async engine, session factory |
 | `orm.py` | the `crawl` and `page` tables and `CrawlState` |
-| `models.py` | `PageRow`, the stats snapshot, `PageResult` to row conversion |
-| `repository.py` | every query, each in its own short transaction: claim, heartbeat, finish, release, reap, cancel, insert and page reads |
-| `reporter.py` | `DbReporter`, the batching `Reporter` the worker hands to the core crawler |
+| `alembic/` | the migration environment and the versions `alembic upgrade head` applies |
+| `models.py` | `PageRow` and the `PageResult` to row conversion |
+| `repository.py` | every query, each in its own short transaction: claim, heartbeat, finish, release, reap, cancel, lease-fenced inserts and page reads |
+| `reporter.py` | `DbReporter`, the batching `Reporter` the worker hands to the core crawler, retrying whatever an insert rejected |
 | `worker.py` | claim loop, heartbeat, cancellation, graceful shutdown, terminal state |
-| `api.py` | the FastAPI app and its routes |
+| `api.py` | the FastAPI app, its routes and the lifespan that disposes the engine |
 | `schemas.py` | request and response models, and the shared seed validation |
-
-### Testing the service
-
-```bash
-make db-up          # postgres on :55432 plus the crawler_test database
-make test-service   # 64 tests against it; the suite migrates that database itself
-```
-
-They are marked `postgres` and skip when `URL_CRAWLER_TEST_DATABASE_URL` is unset, so `make test`
-stays offline and dependency-free. CI runs them in their own job against a Postgres service
-container. They use a real database rather than a fake: `SKIP LOCKED` and `RETURNING` are the parts
-most worth testing, and neither of them exists in a mock.
 
 ### What the service does not do yet
 
@@ -793,7 +819,7 @@ not as a throughput number. The `--ignore-robots` flag is explained in the testi
 ## Testing
 
 Six layers plus the tests that keep the fixtures honest, all deterministic, with no external network
-in the default run. `make test` runs 478 tests; 64 of them need a Postgres and skip without one, and
+in the default run. `make test` runs 483 tests; 68 of them need a Postgres and skip without one, and
 a single network smoke test is deselected unless you ask for it.
 
 ```bash
@@ -813,12 +839,12 @@ make check                                 # lint, types, test
 
 | Layer | Where | What it covers |
 | --- | --- | --- |
-| Unit, pure | `tests/unit/test_urls.py`, `test_scope.py`, `test_retry.py`, `test_parser.py`, `test_frontier.py`, `test_reporting.py`, `test_config.py`, `test_cli_args.py`, `test_progress.py`, `test_http.py`, `test_settings.py`, `test_schemas.py`, `test_service_models.py`, `test_db_reporter.py` | Parametrized tables for normalization, scope near-misses, retry classification, `Retry-After`, jitter bounds with a seeded rng, extraction from saved HTML fixtures, dedup, golden output, progress and banner formatting, the client factory, service settings and request validation, and `DbReporter` batching against a fake repository |
+| Unit, pure | `tests/unit/test_urls.py`, `test_scope.py`, `test_retry.py`, `test_parser.py`, `test_frontier.py`, `test_reporting.py`, `test_config.py`, `test_cli_args.py`, `test_progress.py`, `test_http.py`, `test_settings.py`, `test_schemas.py`, `test_models.py`, `test_service_models.py`, `test_db_reporter.py` | Parametrized tables for normalization, scope near-misses, retry classification, `Retry-After`, jitter bounds with a seeded rng, extraction from saved HTML fixtures, dedup, golden output, progress and banner formatting, the client factory, service settings and request validation, and `DbReporter` batching and retrying against a fake repository |
 | Test infrastructure | `tests/unit/test_fakesite.py`, `test_bench_smoke.py` | The fixtures themselves: the fake site's HTML root, its 500-then-200 flaky route, 404, PDF content type and redirect `Location`, query strings ignored for routing, off-host requests recorded as absolute URLs, the `EXPECTED_CRAWLED` and `NEVER_REQUESTED` sets kept consistent, the loopback server answering real GETs over one keep-alive connection, and the benchmark harness returning one row per concurrency level |
 | HTTP layer, mocked transport | `tests/unit/test_fetcher.py`, `test_robots.py` | `httpx.MockTransport` handlers: 500 then 200 with an asserted call count, 404 with no retry, 429 with `Retry-After`, three timeouts, PDF rejected without reading the body, oversize by header and mid-stream, 3xx returning `Location`, robots.txt failing open on 404, connect error and undecodable body |
 | Integration, in-process | `tests/integration/test_crawl.py` | The crawler against an ASGI fake site through `httpx.ASGITransport`: the exact set of crawled paths, exactly-once fetching, subdomain and external links printed but never requested, redirect chain, redirect cycle, off-host redirect, 404, 500-then-200, `<base href>`, malformed HTML, worker exception isolated, `--max-pages` drain, fuse trip, robots-blocked path, seed re-anchoring |
 | Subprocess, real sockets | `tests/integration/test_cli.py` | The installed CLI against a loopback `ThreadingHTTPServer`: exit codes, stdout purity under `-vv`, JSONL parses and ends with a summary, seed without a scheme, unreachable seed, SIGINT flushing a complete page and exiting 130, closed stdout exiting 0 |
-| Service, real Postgres | `tests/service/` | 64 tests marked `postgres`: `SKIP LOCKED` giving two concurrent claimers different crawls, a claim wiping a previous attempt's pages, heartbeat rejecting a stale worker, the reaper requeueing then failing at `MAX_ATTEMPTS`, release on shutdown, cancel of a queued, a running, a finished and an unknown crawl, keyset pagination over 250 rows, the API surface including SSE and a 503 healthz, the committed migration matching the ORM and surviving a downgrade, and a crawl posted over the API then run by a real `Worker` against the fake site |
+| Service, real Postgres | `tests/service/` | 68 tests marked `postgres`: `SKIP LOCKED` giving two concurrent claimers different crawls, a claim wiping a previous attempt's pages, heartbeat rejecting a stale worker, the reaper requeueing then failing at `MAX_ATTEMPTS`, release on shutdown, an insert refused after another worker takes the lease, cancel of a queued, a running, a finished and an unknown crawl, keyset pagination over 250 rows, the API surface including SSE, a 503 healthz and the shutdown hook, the committed migration matching the ORM and surviving a downgrade, a worker that keeps polling while the database refuses connections, and a crawl posted over the API then run by a real `Worker` against the fake site |
 | Smoke, opt-in | `tests/smoke/test_live.py` | One real HTTPS crawl of `crawler-test.com`, capped at 5 pages: exit 0, the seed printed first, no log lines on stdout, the summary on stderr. It passes `--ignore-robots`, because that site's robots.txt carries a `Disallow: //` line which stdlib `robotparser` reads as block-all. Marked `network` and deselected by default |
 
 The fake site in `tests/fakesite/` is shared by the integration layer, the subprocess layer, the
