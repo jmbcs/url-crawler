@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from url_crawler import __version__
+
 
 @dataclass(frozen=True, slots=True)
 class CrawlConfig:
@@ -12,7 +14,7 @@ class CrawlConfig:
     respect_robots: bool = True
     max_seed_redirects: int = 5
     failure_fuse: int = 20
-    user_agent: str = "url-crawler/0.1 (+https://github.com/jmbcs/url-crawler)"
+    user_agent: str = f"url-crawler/{__version__} (+https://github.com/jmbcs/url-crawler)"
 
     def __post_init__(self) -> None:
         if self.concurrency < 1:

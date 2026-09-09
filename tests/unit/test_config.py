@@ -4,6 +4,7 @@ import re
 
 import pytest
 
+from url_crawler import __version__
 from url_crawler.config import CrawlConfig
 
 
@@ -17,7 +18,9 @@ def test_defaults() -> None:
     assert config.respect_robots is True
     assert config.max_seed_redirects == 5
     assert config.failure_fuse == 20
-    assert config.user_agent == "url-crawler/0.1 (+https://github.com/jmbcs/url-crawler)"
+    assert config.user_agent == (
+        f"url-crawler/{__version__} (+https://github.com/jmbcs/url-crawler)"
+    )
 
 
 @pytest.mark.parametrize(
