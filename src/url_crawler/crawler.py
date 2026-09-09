@@ -73,6 +73,7 @@ class Crawler:
         self._stopping = False
         self._aborted = False
         self._reason: str | None = None
+        self._delay_logged = False
 
     @property
     def pending(self) -> int:
@@ -176,9 +177,20 @@ class Crawler:
         self._claimed += 1
         crawl_delay = self._robots.crawl_delay
         if crawl_delay:
+            self._log_crawl_delay_once(crawl_delay)
             async with self._delay_lock:
                 await self._sleep(crawl_delay)
         self._handle(url, await self._fetcher.fetch(url))
+
+    def _log_crawl_delay_once(self, crawl_delay: float) -> None:
+        if self._delay_logged:
+            return
+        self._delay_logged = True
+        log.warning(
+            "robots.txt sets a %ss crawl delay; that limits this crawl to about %.0f pages/hour",
+            crawl_delay,
+            3600 / crawl_delay,
+        )
 
     def _handle(self, url: str, result: FetchResult | FetchError) -> None:
         self._stats.retries += result.attempts - 1

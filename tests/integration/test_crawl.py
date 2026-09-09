@@ -320,6 +320,19 @@ async def test_crawl_delay_is_applied_once_per_fetched_page(
     assert crawl.sleeps.delays == [0.25] * (crawl.stats.pages_total - 1)
 
 
+async def test_crawl_delay_is_logged_once_not_once_per_page(
+    fake_client: httpx.AsyncClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="url_crawler.crawler"):
+        crawl = await run_crawl(fake_client, robots_loader=delayed_robots)
+
+    assert crawl.stats.pages_total > 1
+    assert caplog.text.count("crawl delay") == 1
+    assert "0.25" in caplog.text
+    assert "pages/hour" in caplog.text
+
+
 async def test_crawl_delay_lock_serialises_the_sleep_across_workers(
     fake_client: httpx.AsyncClient,
 ) -> None:
