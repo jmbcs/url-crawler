@@ -7,25 +7,33 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from uuid import UUID
 
-import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Response
-from fastapi.responses import StreamingResponse
-
 from url_crawler import __version__
 from url_crawler.crawler import SeedGuard
-from url_crawler_service.db import create_engine, make_session_factory
+from url_crawler_service import SERVICE_EXTRA_HINT
 from url_crawler_service.hostcheck import private_host_reason
-from url_crawler_service.orm import Crawl, CrawlState
-from url_crawler_service.repository import TERMINAL_STATES, CrawlRepository
-from url_crawler_service.schemas import (
-    CancelOut,
-    CrawlCreate,
-    CrawlList,
-    CrawlOut,
-    PageList,
-    PageOut,
-)
 from url_crawler_service.settings import Settings, SettingsError
+
+# pip installs this console script even without the service extra, so say so instead of crashing.
+try:
+    import uvicorn
+    from fastapi import FastAPI, HTTPException, Query, Response
+    from fastapi.responses import StreamingResponse
+
+    from url_crawler_service.db import create_engine, make_session_factory
+    from url_crawler_service.orm import Crawl, CrawlState
+    from url_crawler_service.repository import TERMINAL_STATES, CrawlRepository
+    from url_crawler_service.schemas import (
+        CancelOut,
+        CrawlCreate,
+        CrawlList,
+        CrawlOut,
+        PageList,
+        PageOut,
+    )
+
+    SERVICE_EXTRA_INSTALLED = True
+except ImportError:
+    SERVICE_EXTRA_INSTALLED = False
 
 log = logging.getLogger("url_crawler_service.api")
 
@@ -133,6 +141,9 @@ def create_app(
 
 
 def main() -> int:
+    if not SERVICE_EXTRA_INSTALLED:
+        print(f"error: {SERVICE_EXTRA_HINT}", file=sys.stderr)
+        return EXIT_CONFIG
     logging.basicConfig(
         stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )

@@ -20,12 +20,20 @@ from url_crawler.fetcher import Fetcher
 from url_crawler.http import build_client
 from url_crawler.models import CrawlStats, summary
 from url_crawler.robots import load_robots
-from url_crawler_service.db import create_engine, make_session_factory
+from url_crawler_service import SERVICE_EXTRA_HINT
 from url_crawler_service.hostcheck import private_host_reason
-from url_crawler_service.orm import Crawl, CrawlState
-from url_crawler_service.reporter import DbReporter
-from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLostError
 from url_crawler_service.settings import Settings, SettingsError
+
+# pip installs this console script even without the service extra, so say so instead of crashing.
+try:
+    from url_crawler_service.db import create_engine, make_session_factory
+    from url_crawler_service.orm import Crawl, CrawlState
+    from url_crawler_service.reporter import DbReporter
+    from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLostError
+
+    SERVICE_EXTRA_INSTALLED = True
+except ImportError:
+    SERVICE_EXTRA_INSTALLED = False
 
 log = logging.getLogger(__name__)
 
@@ -283,6 +291,9 @@ class Worker:
 
 
 def main() -> int:
+    if not SERVICE_EXTRA_INSTALLED:
+        print(f"error: {SERVICE_EXTRA_HINT}", file=sys.stderr)
+        return EXIT_CONFIG
     logging.basicConfig(
         stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
