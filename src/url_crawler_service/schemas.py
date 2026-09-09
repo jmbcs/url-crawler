@@ -12,7 +12,9 @@ from url_crawler_service.orm import CrawlState, Page
 
 DEFAULTS = CrawlConfig()
 MAX_CONCURRENCY = 50
-MAX_TIMEOUT_SECONDS = 120.0
+# The API cannot set the request budget, so a longer timeout would break CrawlConfig on claim.
+MAX_TIMEOUT_SECONDS = DEFAULTS.request_budget
+MAX_BYTES = 100_000_000
 MAX_SEED_IN_ERROR = 200
 
 
@@ -23,7 +25,7 @@ class CrawlCreate(BaseModel):
     concurrency: int = Field(default=DEFAULTS.concurrency, ge=1, le=MAX_CONCURRENCY)
     timeout: float = Field(default=DEFAULTS.timeout, gt=0, le=MAX_TIMEOUT_SECONDS)
     max_pages: int | None = Field(default=DEFAULTS.max_pages, ge=1)
-    max_bytes: int = Field(default=DEFAULTS.max_bytes, ge=1)
+    max_bytes: int = Field(default=DEFAULTS.max_bytes, ge=1, le=MAX_BYTES)
     respect_robots: bool = DEFAULTS.respect_robots
 
     def normalized_seed(self) -> str:

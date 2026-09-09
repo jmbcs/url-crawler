@@ -9,7 +9,13 @@ from pydantic import ValidationError
 
 from url_crawler.config import CrawlConfig
 from url_crawler_service.orm import Crawl, CrawlState, Page
-from url_crawler_service.schemas import CrawlCreate, CrawlOut, PageOut
+from url_crawler_service.schemas import (
+    MAX_BYTES,
+    MAX_TIMEOUT_SECONDS,
+    CrawlCreate,
+    CrawlOut,
+    PageOut,
+)
 
 CREATED_AT = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
 
@@ -48,9 +54,10 @@ def test_to_config_builds_a_crawl_config() -> None:
         ("concurrency", 0),
         ("concurrency", 51),
         ("timeout", 0.0),
-        ("timeout", 121.0),
+        ("timeout", MAX_TIMEOUT_SECONDS + 1),
         ("max_pages", 0),
         ("max_bytes", 0),
+        ("max_bytes", MAX_BYTES + 1),
     ],
 )
 def test_out_of_bounds_values_are_rejected(field: str, value: float) -> None:
@@ -58,6 +65,18 @@ def test_out_of_bounds_values_are_rejected(field: str, value: float) -> None:
 
     with pytest.raises(ValidationError):
         CrawlCreate(seed="https://example.com", **out_of_bounds)
+
+
+def test_the_largest_accepted_timeout_still_builds_a_crawl_config() -> None:
+    body = CrawlCreate(seed="https://example.com", timeout=MAX_TIMEOUT_SECONDS)
+
+    config = CrawlConfig(**body.to_config())
+
+    assert config.timeout == config.request_budget
+
+
+def test_the_largest_accepted_max_bytes_is_allowed() -> None:
+    assert CrawlCreate(seed="https://example.com", max_bytes=MAX_BYTES).max_bytes == MAX_BYTES
 
 
 def test_normalized_seed_defaults_the_scheme_to_https() -> None:
