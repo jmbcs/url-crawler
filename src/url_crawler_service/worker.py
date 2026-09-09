@@ -15,12 +15,13 @@ from functools import partial
 import httpx
 
 from url_crawler.config import CrawlConfig
-from url_crawler.crawler import Crawler, CrawlOutcome, SeedError
+from url_crawler.crawler import Crawler, CrawlOutcome, SeedError, SeedGuard
 from url_crawler.fetcher import Fetcher
 from url_crawler.http import build_client
 from url_crawler.models import CrawlStats, summary
 from url_crawler.robots import load_robots
 from url_crawler_service.db import create_engine, make_session_factory
+from url_crawler_service.hostcheck import private_host_reason
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.reporter import DbReporter
 from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLostError
@@ -53,11 +54,13 @@ class Worker:
         *,
         worker_id: str,
         client_factory: ClientFactory = build_client,
+        seed_guard: SeedGuard = private_host_reason,
     ) -> None:
         self._repo = repo
         self._settings = settings
         self._worker_id = worker_id
         self._client_factory = client_factory
+        self._seed_guard = seed_guard
         self._interrupt: _Interrupt | None = None
 
     async def run_once(self, *, stop: asyncio.Event | None = None) -> bool:
@@ -105,6 +108,7 @@ class Worker:
             config,
             stats,
             robots_loader=partial(load_robots, client, user_agent=config.user_agent),
+            seed_guard=self._seed_guard,
         )
 
         self._interrupt = None

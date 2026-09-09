@@ -12,6 +12,7 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
+from tests.service.conftest import allow_any_host
 from url_crawler_service.api import create_app, main
 from url_crawler_service.db import create_engine, make_session_factory
 from url_crawler_service.models import PageRow
@@ -25,7 +26,7 @@ WORKER = "worker-1"
 
 @pytest.fixture
 async def api(repo: CrawlRepository) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app(repo, events_interval_seconds=0.05)
+    app = create_app(repo, events_interval_seconds=0.05, seed_guard=allow_any_host)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://api.test"
     ) as client:
@@ -82,6 +83,19 @@ async def test_post_rejects_a_seed_that_cannot_be_crawled(api: httpx.AsyncClient
 
     assert response.status_code == 422
     assert "ftp" in response.json()["detail"]["seed"]
+
+
+@pytest.mark.parametrize("seed", ["http://169.254.169.254/", "http://localhost:5432/"])
+async def test_post_rejects_a_seed_on_a_private_host(repo: CrawlRepository, seed: str) -> None:
+    guarded = create_app(repo)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=guarded), base_url="http://api.test"
+    ) as client:
+        response = await client.post("/crawls", json={"seed": seed})
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["seed"]
+    assert await repo.list_recent() == []
 
 
 async def test_post_rejects_an_out_of_range_concurrency(api: httpx.AsyncClient) -> None:

@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
+from functools import partial
 from typing import Any
 
 import httpx
@@ -14,9 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from tests.fakesite.app import asgi_app
 from tests.fakesite.site import EXPECTED_CRAWLED, FakeSite
-from tests.service.conftest import client_factory
+from tests.service.conftest import allow_any_host, client_factory
 from url_crawler.config import CrawlConfig
 from url_crawler_service.db import create_engine, make_session_factory
+from url_crawler_service.hostcheck import private_host_reason
 from url_crawler_service.models import PageRow
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository
@@ -30,6 +32,8 @@ REQUEST_DELAY_SECONDS = 0.05
 STATE_POLL_SECONDS = 0.05
 STATE_POLL_ATTEMPTS = 200
 NEVER = 30.0
+PUBLIC_ADDRESS = "93.184.216.34"
+PRIVATE_ADDRESS = "10.0.0.5"
 
 
 def build_settings(**overrides: Any) -> Settings:
@@ -95,6 +99,17 @@ class UnwritableRepository(CrawlRepository):
         raise OperationalError("INSERT INTO page", {}, Exception("disk full"))
 
 
+class FlippingResolver:
+    """Answers the public address the API saw, then the private one a DNS rebind returns."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def __call__(self, host: str) -> list[str]:
+        self.calls += 1
+        return [PUBLIC_ADDRESS] if self.calls == 1 else [PRIVATE_ADDRESS]
+
+
 def slow_client_factory(site: FakeSite) -> ClientFactory:
     def build(config: CrawlConfig) -> httpx.AsyncClient:
         return httpx.AsyncClient(
@@ -157,7 +172,11 @@ async def test_run_job_crawls_the_fake_site_to_finished(
 ) -> None:
     crawl_id, claimed = await claim_one(repo, f"http://{fake_site.host}/")
     worker = Worker(
-        repo, build_settings(), worker_id=WORKER_ID, client_factory=client_factory(fake_site)
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
     )
 
     state = await worker.run_job(claimed)
@@ -176,7 +195,11 @@ async def test_run_job_stores_the_final_stats_snapshot(
 ) -> None:
     crawl_id, claimed = await claim_one(repo, f"http://{fake_site.host}/")
     worker = Worker(
-        repo, build_settings(), worker_id=WORKER_ID, client_factory=client_factory(fake_site)
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
     )
 
     await worker.run_job(claimed)
@@ -199,6 +222,7 @@ async def test_run_job_aborts_on_a_cancel_request_and_keeps_the_pages(
         repo,
         build_settings(heartbeat_seconds=0.1),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=slow_client_factory(site),
     )
 
@@ -225,6 +249,7 @@ async def test_run_job_gives_up_quietly_when_another_worker_takes_the_lease(
         # Nothing is flushed before the theft, so any page row means the tail was not discarded.
         build_settings(heartbeat_seconds=0.1, page_batch_size=10_000, page_flush_seconds=NEVER),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=slow_client_factory(site),
     )
 
@@ -246,7 +271,11 @@ async def test_cancelling_run_job_leaves_no_crawl_task_behind(repo: CrawlReposit
     site = FakeSite.generated(SLOW_SITE_PAGES)
     _, claimed = await claim_one(repo, f"http://{site.host}/")
     worker = Worker(
-        repo, build_settings(), worker_id=WORKER_ID, client_factory=slow_client_factory(site)
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=slow_client_factory(site),
+        seed_guard=allow_any_host,
     )
 
     job = asyncio.create_task(worker.run_job(claimed))
@@ -266,6 +295,7 @@ async def test_run_job_writes_nothing_when_the_closing_flush_finds_the_lease_gon
         repo,
         build_settings(heartbeat_seconds=NEVER, page_batch_size=10_000, page_flush_seconds=NEVER),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=client_factory(fake_site),
     )
     await steal_lease(engine, crawl_id)
@@ -283,7 +313,11 @@ async def test_run_job_writes_nothing_when_the_closing_flush_finds_the_lease_gon
 async def test_run_job_fails_when_the_seed_is_unreachable(repo: CrawlRepository) -> None:
     crawl_id, claimed = await claim_one(repo, "http://site.test/")
     worker = Worker(
-        repo, build_settings(), worker_id=WORKER_ID, client_factory=unreachable_client_factory()
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=unreachable_client_factory(),
+        seed_guard=allow_any_host,
     )
 
     state = await worker.run_job(claimed)
@@ -295,6 +329,31 @@ async def test_run_job_fails_when_the_seed_is_unreachable(repo: CrawlRepository)
     assert stored.error.startswith("Could not fetch seed http://site.test/")
 
 
+async def test_run_job_fails_when_the_seed_host_turns_private_after_the_claim(
+    repo: CrawlRepository, fake_site: FakeSite
+) -> None:
+    guard = partial(private_host_reason, resolve=FlippingResolver())
+    seed = f"http://{fake_site.host}/"
+    assert await guard(seed) is None
+
+    crawl_id, claimed = await claim_one(repo, seed)
+    worker = Worker(
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=guard,
+    )
+
+    state = await worker.run_job(claimed)
+
+    assert state is CrawlState.FAILED
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.error == f"seed rejected: host resolves to a private address ({PRIVATE_ADDRESS})"
+    assert await repo.list_pages(crawl_id, limit=1) == []
+
+
 async def test_run_job_fails_when_the_pages_cannot_be_written(
     repo: CrawlRepository, engine: AsyncEngine, fake_site: FakeSite
 ) -> None:
@@ -304,6 +363,7 @@ async def test_run_job_fails_when_the_pages_cannot_be_written(
         unwritable,
         build_settings(),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=client_factory(fake_site),
     )
 
@@ -327,6 +387,7 @@ async def test_run_job_appends_the_flush_error_to_a_cancelled_crawl(
         unwritable,
         build_settings(heartbeat_seconds=0.1),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=slow_client_factory(site),
     )
 
@@ -368,7 +429,11 @@ async def test_run_once_claims_and_finishes_a_queued_crawl(
 ) -> None:
     crawl = await repo.create(f"http://{fake_site.host}/", CONFIG)
     worker = Worker(
-        repo, build_settings(), worker_id=WORKER_ID, client_factory=client_factory(fake_site)
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
     )
 
     assert await worker.run_once() is True
@@ -419,6 +484,7 @@ async def test_run_forever_keeps_polling_after_a_database_error(
         unreapable,
         build_settings(worker_poll_seconds=0.05),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=client_factory(fake_site),
     )
     stop = asyncio.Event()
@@ -441,6 +507,7 @@ async def test_run_forever_requeues_the_running_crawl_when_stopped(
         recording,
         build_settings(heartbeat_seconds=0.1),
         worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
         client_factory=slow_client_factory(site),
     )
     stop = asyncio.Event()

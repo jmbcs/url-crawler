@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from tests.fakesite.site import EXPECTED_CRAWLED, FakeSite
-from tests.service.conftest import client_factory
+from tests.service.conftest import allow_any_host, client_factory
 from url_crawler_service.api import create_app
 from url_crawler_service.repository import CANCELLED_BEFORE_START_ERROR, CrawlRepository
 from url_crawler_service.settings import Settings
@@ -19,7 +19,8 @@ UNUSED_DATABASE_URL = "postgresql+asyncpg://unused/unused"
 @pytest.fixture
 async def api(repo: CrawlRepository) -> AsyncIterator[httpx.AsyncClient]:
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=create_app(repo)), base_url="http://api.test"
+        transport=httpx.ASGITransport(app=create_app(repo, seed_guard=allow_any_host)),
+        base_url="http://api.test",
     ) as client:
         yield client
 
@@ -30,6 +31,7 @@ def build_worker(repo: CrawlRepository, fake_site: FakeSite) -> Worker:
         Settings(database_url=UNUSED_DATABASE_URL),
         worker_id=WORKER_ID,
         client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
     )
 
 

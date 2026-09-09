@@ -66,6 +66,11 @@ async def repo(engine: AsyncEngine) -> CrawlRepository:
     return CrawlRepository(make_session_factory(engine))
 
 
+async def allow_any_host(url: str) -> str | None:
+    """The fake hosts resolve nowhere, so the tests turn the private-host guard off."""
+    return None
+
+
 def client_factory(fake_site: FakeSite) -> Callable[[CrawlConfig], httpx.AsyncClient]:
     """Build the fake-site client the worker uses instead of a real HTTP client."""
 

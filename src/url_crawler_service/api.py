@@ -12,7 +12,9 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from url_crawler import __version__
+from url_crawler.crawler import SeedGuard
 from url_crawler_service.db import create_engine, make_session_factory
+from url_crawler_service.hostcheck import private_host_reason
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.repository import TERMINAL_STATES, CrawlRepository
 from url_crawler_service.schemas import (
@@ -38,6 +40,7 @@ def create_app(
     *,
     events_interval_seconds: float = 2.0,
     on_shutdown: Callable[[], Awaitable[None]] | None = None,
+    seed_guard: SeedGuard = private_host_reason,
 ) -> FastAPI:
     """Build the HTTP API over one repository; the API never crawls, it only reads and writes."""
 
@@ -72,6 +75,9 @@ def create_app(
             seed = body.normalized_seed()
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={"seed": str(exc)}) from exc
+        rejected = await seed_guard(seed)
+        if rejected is not None:
+            raise HTTPException(status_code=422, detail={"seed": rejected})
         crawl = await repo.create(seed, body.to_config())
         response.headers["Location"] = f"/crawls/{crawl.id}"
         return CrawlOut.from_orm_row(crawl)
