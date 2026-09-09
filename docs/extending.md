@@ -5,39 +5,34 @@ purpose.
 
 ## Why a CLI stops fitting
 
-Four axes, and any one of them is enough.
+Four axes, and any one of them is enough:
 
-*Lifetime.* A six-hour crawl bound to a terminal session dies with the SSH connection, and
-`--resume` is a workaround for the absence of a job.
+- **Lifetime.** A six-hour crawl bound to a terminal session dies with the SSH connection, and
+  `--resume` is a workaround for the absence of a job.
+- **Cross-process politeness.** Ten laptops each running a polite crawler are collectively a denial
+  of service, and no amount of per-process courtesy fixes it. This axis alone forces a central service.
+- **Machine consumption.** stdout is a poor API. A consumer wants the pages of crawl 47 since cursor
+  X, not a re-run and a re-parse.
+- **Multi-tenancy.** Quotas, authentication and an audit trail have nowhere to live in a process
+  with no identity.
 
-*Cross-process politeness.* Ten laptops each running a polite crawler are collectively a denial of
-service, and no amount of per-process courtesy fixes it. That axis alone forces a central service.
-
-*Machine consumption.* stdout is a poor API. A consumer wants the pages of crawl 47 since cursor X,
-not a re-run and a re-parse.
-
-*Multi-tenancy.* Quotas, authentication and an audit trail have nowhere to live in a process with no
-identity.
-
-So the [crawl service](service.md) is job-shaped rather than stream-shaped. The crawl itself is
-still the `Crawler` class the CLI runs: the service adds a queue, a lease and a store around it, and
-changes nothing inside it.
+So the [crawl service](service.md) is job-shaped, not stream-shaped: it wraps the same `Crawler`
+class the CLI runs with a queue, a lease and a store, changing nothing inside it.
 
 ## Extending to multiple domains
 
-**The unit of parallelism becomes the host, not the URL.** Politeness is per-host, so a worker that
-leases a host owns that host's rate limit and can enforce it with an in-process token bucket and
-zero coordination. That is the Mercator design (Heydon and Najork, 1999) and it is the change that
-matters: `HostScope` becomes an allowlist scope, the frontier becomes one queue per host with
-round-robin service so a 100k-page site cannot starve a 10-page one, and robots.txt is cached per
-host with a TTL instead of fetched once per run. Everything else in this repository survives,
-because the fetcher, the parser and the reporter never knew how many hosts there were.
-
-**Beyond one process, the frontier is the hard part.** A frontier is not a queue: it is a
-deduplicating set with a scheduling policy and durable retry state, and message brokers give you the
-opposite of all three. So the right primitive is a table, not RabbitMQ. In PostgreSQL, `PRIMARY KEY
-(crawl_id, url_hash)` with `ON CONFLICT DO NOTHING` makes the insert itself the "have I seen this?"
-check, and workers claim work without contending:
+- **The unit of parallelism becomes the host, not the URL.** Politeness is per-host, so a worker
+  leasing a host owns its rate limit with an in-process token bucket and zero coordination (the
+  Mercator design, Heydon and Najork 1999).
+- `HostScope` becomes an allowlist scope, the frontier becomes one queue per host with round-robin
+  service so a 100k-page site cannot starve a 10-page one, and robots.txt is cached per host with a
+  TTL. The fetcher, parser and reporter never knew how many hosts there were, so they survive unchanged.
+- **Beyond one process, the frontier is the hard part.** A frontier is a deduplicating set with a
+  scheduling policy and durable retry state, and message brokers give the opposite of all three. The
+  right primitive is a table, not RabbitMQ.
+- In PostgreSQL, `PRIMARY KEY (crawl_id, url_hash)` with `ON CONFLICT DO NOTHING` makes the insert
+  itself the "have I seen this?" check, and `SKIP LOCKED` lets N workers claim disjoint batches with
+  no queue and no lock convoy:
 
 ```sql
 UPDATE frontier SET state = 'claimed', claimed_at = now()
@@ -49,14 +44,12 @@ WHERE url_hash IN (
 ) RETURNING url;
 ```
 
-`SKIP LOCKED` lets N workers claim disjoint batches with no queue and no lock convoy, and a
-`claimed_at` timestamp plus a reaper handles a worker that dies mid-page. That is the same pattern
-the crawl service already uses one level up, where the unit claimed is a whole crawl rather than a
-batch of URLs, so the step from here to there is a third table and a per-host lease, not a rewrite.
-Delivery is at-least-once, so page writes are idempotent upserts keyed on `(crawl_id, url_hash)`.
-The ceiling on this design is not CPU or database throughput: it is the reputation of your egress
-IPs, which is why a real multi-domain crawler ends up caring about proxy pools long before it cares
-about sharding.
+- A `claimed_at` timestamp plus a reaper handles a worker that dies mid-page. That is the same
+  pattern the crawl service already uses one level up, claiming a whole crawl rather than a batch of
+  URLs, so the step from here to there is a third table and a per-host lease, not a rewrite.
+- Delivery is at-least-once, so page writes are idempotent upserts keyed on `(crawl_id, url_hash)`.
+- The ceiling on this design is not CPU or database throughput: it is the reputation of your egress
+  IPs, which is why a real multi-domain crawler ends up caring about proxy pools long before sharding.
 
 ## Future work, ranked by value per line of code
 
