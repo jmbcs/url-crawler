@@ -10,8 +10,6 @@
 htmlcov
 tests
 scripts
-architecture-discussion.md
-initial_prompt.md
 Dockerfile
 .dockerignore
 .pre-commit-config.yaml
