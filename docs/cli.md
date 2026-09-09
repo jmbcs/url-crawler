@@ -2,19 +2,16 @@
 
 Every flag, every exit code, both output formats, and what the CLI writes to stderr.
 
+Getting started is the [CLI walkthrough](../README.md#the-cli) in the README: `uv sync`, then
+`uv run url-crawler <url>`. This page is the reference behind it and does not repeat it.
+
 ## Running it
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
-```bash
-uv sync                                             # install, from the committed uv.lock
-uv run url-crawler https://example.com              # crawl and print to stdout
-uv run url-crawler example.com --format jsonl > out.jsonl   # scheme defaults to https
-uv run url-crawler https://example.com -v --max-pages 200   # progress logs and a page cap
-```
-
 - **Docker**: `docker build --target cli -t url-crawler .` then `docker run --rm url-crawler https://example.com`.
 - **Without uv**: `pip install .` then `url-crawler https://example.com`, or `python -m url_crawler <url>`.
+- **The service extra**: `pip install '.[service]'` adds the crawl service, covered in [service.md](service.md).
 - **Windows**: no asyncio signal handlers, `KeyboardInterrupt` handles Ctrl-C, same exit code 130.
 
 ## Flags
