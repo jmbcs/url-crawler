@@ -274,6 +274,16 @@ inside one item, so a consumer never sees half a page.
 Every setting is an environment variable named after its field. A missing `DATABASE_URL` or an
 unparsable value exits 2 with a message naming the variable.
 
+- `cp .env.example .env` to start: every variable is listed there with its default and a one-line
+  comment on what it does.
+- `docker compose up` loads `.env` on its own (`env_file`), but always builds the containers'
+  `DATABASE_URL` itself against `postgres:5432`, so a host-side value in `.env` never leaks in.
+- Outside Docker, `make migrate`, `make api`, `make worker` and `make test-service` run through
+  `uv run --env-file .env` when `.env` exists, falling back to their built-in defaults otherwise.
+- Two databases: `crawler` for `migrate`/`api`/`worker`, `crawler_test` for `test-service`, so a
+  compose worker never claims a crawl the test suite queued. `make db-reset` recreates the local
+  Postgres volume, which `docker/postgres-init.sql` needs to create `crawler_test` on first boot.
+
 | Variable | Default | Read by |
 | --- | --- | --- |
 | `DATABASE_URL` | required | api, worker, alembic |
@@ -297,9 +307,11 @@ make test-service   # 69 tests against it; the suite migrates that database itse
 ```
 
 They are marked `postgres` and skip when `URL_CRAWLER_TEST_DATABASE_URL` is unset, so `make test`
-stays offline and dependency-free. CI runs them in their own job against a Postgres service
-container. They use a real database rather than a fake: `SKIP LOCKED` and `RETURNING` are the parts
-most worth testing, and neither of them exists in a mock.
+stays offline and dependency-free; `.env.example` sets it to the `crawler_test` DSN, kept separate
+from `DATABASE_URL` so the compose worker and the test suite never fight over the same rows. CI
+runs them in their own job against a Postgres service container. They use a real database rather
+than a fake: `SKIP LOCKED` and `RETURNING` are the parts most worth testing, and neither of them
+exists in a mock.
 
 <details>
 <summary>How it works: why a CLI stops fitting, the claim and lease design, what survives a database
