@@ -4,6 +4,9 @@
 DB_URL ?= postgresql+asyncpg://crawler:crawler@localhost:55432/crawler
 TEST_DB_URL ?= postgresql+asyncpg://crawler:crawler@localhost:55432/crawler_test
 
+ENV_FILE := $(wildcard .env)
+UV_RUN := uv run $(if $(ENV_FILE),--env-file $(ENV_FILE),)
+
 install:
 	uv sync --frozen
 
@@ -48,19 +51,19 @@ db-reset:
 	docker compose down -v
 
 migrate:
-	DATABASE_URL=$(DB_URL) uv run alembic upgrade head
+	$(if $(ENV_FILE),,DATABASE_URL=$(DB_URL)) $(UV_RUN) alembic upgrade head
 
 migration:
-	DATABASE_URL=$(DB_URL) uv run alembic revision --autogenerate -m "$(m)"
+	$(if $(ENV_FILE),,DATABASE_URL=$(DB_URL)) $(UV_RUN) alembic revision --autogenerate -m "$(m)"
 
 api:
-	DATABASE_URL=$(DB_URL) uv run url-crawler-api
+	$(if $(ENV_FILE),,DATABASE_URL=$(DB_URL)) $(UV_RUN) url-crawler-api
 
 worker:
-	DATABASE_URL=$(DB_URL) uv run url-crawler-worker
+	$(if $(ENV_FILE),,DATABASE_URL=$(DB_URL)) $(UV_RUN) url-crawler-worker
 
 test-service:
-	URL_CRAWLER_TEST_DATABASE_URL=$(TEST_DB_URL) uv run pytest tests/service -q
+	$(if $(ENV_FILE),,URL_CRAWLER_TEST_DATABASE_URL=$(TEST_DB_URL)) $(UV_RUN) pytest tests/service -q
 
 compose-up:
 	docker compose up --build
