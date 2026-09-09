@@ -26,7 +26,8 @@ question it answered.
   whether adoption-agency reconstruction can duplicate an anchor across a block boundary (the
   `unclosed_anchor.html` fixture exists to pin that behaviour down rather than guess it).
 - RFC 9110 section 10.2.3, on `Retry-After`: both accepted forms, delta-seconds and HTTP-date.
-- RFC 9309, on robots.txt: matching rules, and what a fetch failure is allowed to mean.
+- RFC 9309, on robots.txt: the matching rules, and section 2.3.1 on what an unreachable file
+  means, which is why a 5xx blocks the crawl instead of allowing it.
 - Heydon and Najork, "Mercator: A Scalable, Extensible Web Crawler" (1999): the per-host frontier
   argument in [extending.md](extending.md).
 - PostgreSQL documentation on `FOR UPDATE SKIP LOCKED`: the claim query used by the crawl service
@@ -67,18 +68,20 @@ two of which the critic flagged as likely stale; those were thrown out and the p
 Claude Code drafted every file here: the packages, the tests, the fake site, the benchmark and this
 documentation. My contribution was direction and judgement rather than typing: framing the exercise,
 picking one of three candidate architectures, settling the three interpretation calls at the top of
-the README, and accepting or rejecting each design decision on its merits. I read the design
-document and this documentation closely and spot-checked the code and tests rather than reading
-every line; the test suite, ruff and mypy stood in for a line-by-line review. A reviewer grading
-this page on candour should read it as "AI wrote the lines, I chose what the lines should say", not
-as a claim that any particular module was typed by hand.
+the README, and accepting or rejecting each design decision on its merits. I read four things in
+full: the design document, the interface contracts the writer agents worked from, every design
+decision in [design-decisions.md](design-decisions.md), and the crawl contract the fake site pins.
+Module implementations I spot-checked against those rather than reading every line, and the test
+suite, ruff and mypy carry the rest. A reviewer grading this page on candour should read it as "AI
+wrote the lines, I chose what the lines should say", not as a claim that any particular module was
+typed by hand.
 
 ## How AI output was verified
 
 Nothing here is claimed on the strength of a model having said it.
 
-- Behaviour is asserted by the test suite: 485 tests across the layers listed in
-  [testing.md](testing.md), of which 69 need a Postgres (`make test`, then
+- Behaviour is asserted by the test suite: 590 tests across the layers listed in
+  [testing.md](testing.md), of which 73 need a Postgres (`make test`, then
   `make db-up && make test-service`), plus one network smoke test deselected by default. The crawl
   contract, the retry table, the scope near-misses, the exit codes and the claim, heartbeat and
   reaper transitions are all test-enforced rather than described.

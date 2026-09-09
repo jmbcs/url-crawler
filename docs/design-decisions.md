@@ -1,7 +1,7 @@
 # Design decisions
 
-Every decision taken while building the crawler, with the option that was rejected and what would
-reverse it.
+The README table gives one line per decision. Each section below carries the argument behind that
+line, the option that was rejected, and what would reverse it.
 
 ## asyncio with one client and N workers
 
@@ -69,23 +69,56 @@ coverage of apex-only pages, and a literal scope with no re-anchoring, which sto
 a large share of real sites. *Reverses if:* a target turns out to have pages reachable only on the
 apex, with no link from the `www` host; the wide scope is a two-line change to `HostScope`.
 
-## Robots on by default, nofollow followed
+## Robots on by default, and unreadable means blocked
 
 robots.txt is fetched once for the final seed host, parsed with `urllib.robotparser`, and applied to
 every candidate URL before it enters the frontier. The seed itself is the one URL fetched before
-robots.txt is read, because its redirect chain decides which host's robots.txt applies; if that file
-then disallows the seed, the run stops there with exit code 3 and a message that names
-`--ignore-robots`. Fetch failures and undecodable bodies fail open and log at INFO, because an
-unreadable robots.txt is not a prohibition. A `Crawl-delay` is honoured by serializing a sleep
-across the workers.
+robots.txt is read, because its redirect chain decides which host's robots.txt applies. A
+`Crawl-delay` is honoured by serializing a sleep across the workers.
+
+What the fetch gets back decides the policy:
+
+| Outcome | Policy |
+| --- | --- |
+| 200 | Parse the body and apply it. |
+| 3xx with a `Location` | Followed, up to five hops, to another host if the header says so, because a site is free to serve the file from a CDN. |
+| Any other status below 500, a 404 above all | The site has no robots.txt, so every path is allowed. Logged at INFO. |
+| 5xx, a connection or transport error, a redirect with no `Location`, more than five hops, or a body that is not UTF-8 | Complete disallow, per RFC 9309 section 2.3.1. |
+
+A complete disallow ends the run there: exit code 3, and a message naming `--ignore-robots`. So does
+a robots.txt that reads fine and disallows the seed.
 
 `rel="nofollow"` links are followed and printed. `nofollow` is a hint to search engines about link
 equity, not an access control; robots.txt is the access control, and this tool obeys that one.
 
-*Rejected:* robots off by default (faster to write, wrong for anything pointed at a real site) and
-honouring `nofollow` (would silently hide pages the site never asked to protect). *Reverses if:* a
-crawl trap turns out to be marked with `nofollow` in practice, which would make it a useful signal
-rather than a misapplied one.
+*Rejected:* failing open on an unreadable robots.txt, which is what an earlier version of this code
+did. It is the friendlier answer for whoever is running the crawl and the wrong one for the site: a
+503 on robots.txt is the one moment a site cannot say what it allows, and RFC 9309 gives it the
+benefit of the doubt. Also rejected: robots off by default (faster to write, wrong for anything
+pointed at a real site) and honouring `nofollow` (would silently hide pages the site never asked to
+protect). *Reverses if:* a flaky robots.txt makes exit 3 the usual outcome for legitimate crawls, at
+which point the fix is retrying the robots fetch rather than going back to fail-open. Honouring
+`nofollow` reverses if a crawl trap turns out to be marked with it in practice.
+
+## One normal form, and a stricter key for dedup
+
+`normalize()` produces the form that is requested and printed: scheme and host lowercased, a default
+port dropped, an empty path turned into `/`, the fragment dropped, dot segments resolved (`/a/../b`
+becomes `/b`, and a trailing slash survives), and userinfo removed. Credentials identify the caller
+rather than the resource, so stripping `user:password@` at normalization is what keeps a password
+out of the frontier, the output and every log line.
+
+`canonical_key()` is the dedup identity and is never printed. It folds percent-encoding on top of
+the normal form: hex digits uppercased, unreserved characters decoded, non-ASCII encoded. So `/café`
+and `/caf%C3%A9` are one page, and whichever spelling the site linked to is the one that prints. It
+also sorts query parameters by name, with a stable sort, so `?b=1&a=2` and `?a=2&b=1` are the same
+page while `?a=2&a=1` and `?a=1&a=2` stay two.
+
+*Rejected:* folding the key back into the printed URL, which would rewrite a URL the site chose to
+serve; and sorting whole `name=value` pairs, which would merge two orderings of a repeated parameter
+that a server is free to read as two different requests. *Reverses if:* a target puts a session id
+or a tracking parameter in the query, where the next step is dropping known parameters from the key
+rather than changing how the rest are ordered.
 
 ## Retry classification by leaf type
 
@@ -98,6 +131,18 @@ policy is a table test that runs in microseconds. Retryable statuses are 408, 42
 can fix. Three attempts, full jitter (`uniform(0, min(8, 0.5 * 2**attempt))`), and `Retry-After` on
 429 and 503 in both delta-seconds and HTTP-date form, capped at 30 seconds. `sleep` and
 `random.Random` are injected, so the retry tests do not sleep.
+
+`httpx.DecodingError` is deliberately off that list. A body that fails to decompress is reported as
+a `protocol` error and not retried, because the same bytes decode the same way on a second attempt.
+The fetcher catches it by name, so it comes back as one classified failed page instead of reaching
+the crawler's catch-all as an `internal` error, and a host that has started sending broken gzip
+counts toward the failure fuse.
+
+Two clocks bound one request. `--timeout` is the read and write timeout, so it caps the gap between
+chunks; `--request-budget` (60 seconds by default) caps the whole request including the body,
+because a server that trickles one byte at a time never trips a read timeout. Exceeding the budget
+is reported as a `timeout` and retried like one. The budget has to be above 0 and at least
+`--timeout`, and the CLI exits 2 when it is not.
 
 *Rejected:* Tenacity (a dependency, a decorator, and `Retry-After` still needs custom code) and
 retrying by exception base class. *Reverses if:* retry behaviour needs to differ per host, which is
@@ -175,6 +220,26 @@ inside one response item, so a consumer never sees half a page.
 *Rejected:* a small HTMX UI. *Reverses if:* someone who does not use `curl` has to watch a crawl, at
 which point the UI is a static page over the existing `/crawls` and `/events` endpoints and adds no
 server-side code.
+
+## The service guards its seed host, the CLI does not
+
+The service resolves the seed host before it queues anything and refuses whatever points inside the
+network it runs in: `localhost`, any `*.localhost`, `*.local` or `*.internal` name, a private IP
+literal, and any host resolving to a loopback, private, link-local (`169.254.169.254` included),
+multicast, reserved or unspecified address, or an IPv6 unique-local one. A host that does not
+resolve is refused too. `POST /crawls` answers 422 with `{"detail": {"seed": "<reason>"}}`, and the
+worker repeats the check before the first seed fetch and before every hop of the seed's redirect
+chain, so a public host that redirects to the metadata address is caught at the hop rather than
+fetched. A worker that rejects a seed ends the crawl `failed` with `seed rejected: <reason>`.
+
+The CLI has no such check, on purpose. Pointing it at `http://localhost:8000` is a normal thing to
+do while developing, and the CLI reaches nothing the person typing the command cannot already reach.
+The API is the opposite: anyone who can post to it borrows the network its worker sits in.
+
+*Rejected:* a hostname blocklist with no DNS lookup, which any name pointing at `127.0.0.1` walks
+straight through, and applying the same guard to the CLI. *Reverses if:* the API grows
+authentication and an operator wants internal crawls allowed for authenticated callers, which turns
+the guard into a per-caller policy rather than a flat refusal.
 
 ## Standard library logging and a stats dataclass
 

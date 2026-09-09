@@ -3,22 +3,6 @@
 How the crawler is put together: the core modules, the worker loop, and the pieces the crawl service
 adds around them.
 
-## Features
-
-- Recursive crawl of one host with cycle-safe deduplication and a definite end.
-- Bounded concurrency: N asyncio workers over one shared `httpx.AsyncClient` connection pool.
-- URL normalization, and dedup by a canonical key that ignores query parameter order.
-- Exact case-insensitive `(host, port)` scope. `www.example.com` is not `example.com`.
-- Redirects modelled as links, so once the seed's chain settles, nothing off-host is contacted.
-- robots.txt on by default, `Crawl-delay` honoured, fail open when robots.txt cannot be read.
-- Retries with full jitter for retryable statuses and transport errors, `Retry-After` respected.
-- Bodies streamed behind a content-type gate and a size cap, so a 4 GB video is never downloaded.
-- Text or JSONL output. Results on stdout, logs and the run summary on stderr.
-- Exit codes that mean something, partial output flushed on Ctrl-C, and `| head` handled cleanly.
-- A failure fuse that aborts a crawl which has stopped producing anything but errors.
-- An optional crawl service: `POST /crawls` queues a job, a worker runs it, results page out of
-  Postgres by keyset cursor.
-
 ## The core
 
 One process, one event loop, one HTTP client. `cli.py` parses flags and wires the objects together,
@@ -28,7 +12,7 @@ inside the fetcher, so the crawler only ever sees a finished `FetchResult` or `F
 ```mermaid
 flowchart TD
     CLI["cli.py<br>flags, wiring, signals, summary"] --> Crawler["crawler.py<br>seed redirects, worker pool, scope, fuse"]
-    Crawler --> Robots["robots.py<br>robots.txt once, fail open, Crawl-delay"]
+    Crawler --> Robots["robots.py<br>robots.txt once, deny when unreadable, Crawl-delay"]
     Crawler <--> Frontier["frontier.py<br>asyncio.Queue plus seen keys"]
     Crawler --> Fetcher["fetcher.py<br>streaming GET, content-type and size gates"]
     Fetcher --> Retry["retry.py<br>classify, full-jitter backoff, Retry-After"]
@@ -53,21 +37,25 @@ pipeline turns an unexpected exception into one failed page instead of a cancell
 | Module | Responsibility |
 | --- | --- |
 | `cli.py` | argparse flags, object wiring, SIGINT and SIGTERM, exit codes, banner and progress line, stderr summary |
+| `progress.py` | start banner and the redrawing progress line, both stderr and TTY-only |
 | `config.py` | frozen `CrawlConfig`, validated once in `__post_init__` |
-| `crawler.py` | seed redirect chain, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
+| `crawler.py` | seed redirect chain, the optional seed guard, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
 | `frontier.py` | `asyncio.Queue` plus a set of canonical keys: dedup, backlog size, termination |
-| `fetcher.py` | one streaming GET per attempt, content-type and size gates, retry loop |
+| `fetcher.py` | one streaming GET per attempt, the whole-request budget, content-type and size gates, retry loop |
 | `retry.py` | pure classification, full-jitter backoff, `Retry-After` parsing |
 | `parser.py` | link extraction with selectolax, `<base href>`, per-page dedup in document order |
-| `urls.py` | `prepare_seed`, `normalize`, `canonical_key`, `resolve_href`, `HostScope` |
-| `robots.py` | fetch and parse robots.txt once, `Crawl-delay`, fail open |
+| `urls.py` | `prepare_seed`; `normalize`, which drops userinfo and resolves dot segments; `canonical_key`, which folds percent-encoding and sorts query names; `resolve_href`; `HostScope` |
+| `robots.py` | fetch robots.txt once through up to five redirects, parse it, `Crawl-delay`, deny everything when it cannot be read |
 | `http.py` | the one `httpx.AsyncClient` factory, shared by the CLI and the service worker |
 | `reporting.py` | `Reporter` protocol with a text and a JSONL implementation |
 | `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats`, and the `summary` both the JSONL output and the service store |
-| `progress.py` | start banner and the redrawing progress line, both stderr and TTY-only |
 
 `src/url_crawler_service/` holds the optional service and imports the core; the core never imports
 it.
+
+The version has one source: `__version__` in `src/url_crawler/__init__.py`, which
+`[tool.hatch.version]` reads when it builds the wheel. The banner, `--version` and the default user
+agent all read the same string, so nothing can drift from the published version.
 
 ## The crawl service
 
@@ -86,6 +74,15 @@ flowchart LR
     Reporter --> Db
 ```
 
+### The seed host guard
+
+The service refuses a seed that points inside its own network. `POST /crawls` resolves the host and
+answers 422 before it writes a row, and the worker repeats the check before the first seed fetch and
+before every hop of the seed's redirect chain. A rejected seed ends the crawl `failed` with
+`seed rejected: <reason>`. [service.md](service.md) lists what counts as private, and
+[design-decisions.md](design-decisions.md#the-service-guards-its-seed-host-the-cli-does-not) says
+why the CLI has no such guard.
+
 ### Service modules
 
 | Module | Responsibility |
@@ -100,6 +97,7 @@ flowchart LR
 | `worker.py` | claim loop, heartbeat, cancellation, graceful shutdown, terminal state |
 | `api.py` | the FastAPI app, its routes and the lifespan that disposes the engine |
 | `schemas.py` | request and response models, and the shared seed validation |
+| `hostcheck.py` | `private_host_reason`: resolve a seed host and say why it must not be crawled |
 
 ## Data model
 
@@ -151,10 +149,16 @@ While the crawl runs, the worker heartbeats every `HEARTBEAT_SECONDS`: one `UPDA
 matches on `worker_id` too, so a worker that lost its lease gets no row back, learns it no longer
 owns the crawl, and stops writing.
 
-Before each claim, the worker also reaps: any crawl still `running` whose `heartbeat_at` is older
-than `LEASE_SECONDS` is settled in one pass. A cancelled one becomes `aborted`, one below
-`MAX_ATTEMPTS` goes back to `queued`, and the rest become `failed` with `error = "worker lost"`. A
-`kill -9` therefore costs one lease period, not a stuck job.
+`finish` and `release` answer the same question: each returns whether its `UPDATE` matched a row. A
+worker that matched nothing logs a warning naming the state it wanted to record, rather than
+reporting a state it never wrote.
+
+The worker also reaps: any crawl still `running` whose `heartbeat_at` is older than `LEASE_SECONDS`
+is settled in one pass. A cancelled one becomes `aborted`, one below `MAX_ATTEMPTS` goes back to
+`queued`, and the rest become `failed` with `error = "worker lost"`. A `kill -9` therefore costs one
+lease period, not a stuck job. Reaping runs once when the worker starts and then at most once per
+`LEASE_SECONDS`, because every worker issues the same three updates and running them on each
+one-second poll would repeat that work for nothing.
 
 On `SIGTERM` the worker does better than that: it cancels the crawl, writes the pages it has, and
 releases the row back to `queued` at once, so no lease period is lost. The attempt counter is left
@@ -179,8 +183,8 @@ a crawl that was cancelled keeps its own reason with the write error appended to
 
 Every insert is fenced by the lease. It locks the crawl row `FOR SHARE` and writes only while that
 row is still `running` under this worker id, in the same transaction. A worker whose lease was
-reaped raises `LeaseLost` instead of mixing its pages into the attempt another worker now owns; it
-logs a warning, records no terminal state, and leaves the row to its new owner.
+reaped raises `LeaseLostError` instead of mixing its pages into the attempt another worker now
+owns; it logs a warning, records no terminal state, and leaves the row to its new owner.
 
 ## Cancel semantics
 
