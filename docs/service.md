@@ -58,11 +58,20 @@ instead of failing on an import.
 | `GET` | `/healthz` | 200 after a `SELECT 1`, 503 when the database is unreachable. |
 
 The request body is validated by pydantic and rejects unknown fields: `seed` is required,
-`concurrency` is 1 to 50, `timeout` is above 0 and at most 120 seconds, `max_pages` and `max_bytes`
-are at least 1, `respect_robots` defaults to true. The defaults come from `CrawlConfig()`, so they
-are the CLI defaults, and a test asserts it. The seed goes through the same `prepare_seed` and
-`normalize` the CLI uses, both in `urls.py`, so `{"seed": "example.com"}` is stored as
-`https://example.com/`. OpenAPI is at `/docs`.
+`concurrency` is 1 to 50, `timeout` is above 0 and at most 60 seconds, `max_pages` is at least 1,
+`max_bytes` is 1 to 100,000,000, `respect_robots` defaults to true. The defaults come from
+`CrawlConfig()`, so they are the CLI defaults, and a test asserts it.
+
+The 60-second timeout ceiling is the request budget, which the API does not expose. A crawl config
+whose timeout exceeds its budget is invalid, so a request above the ceiling is refused at submission
+with a 422 rather than accepted with a 202 and failed later by the worker.
+
+The seed goes through the same `prepare_seed` and `normalize` the CLI uses, both in `urls.py`, so
+`{"seed": "example.com"}` is stored as `https://example.com/`. A seed carrying a control byte is
+rejected there, which is why a NUL in a posted seed is a 422 and not a 500.
+
+FastAPI serves its own documentation and needs no flag to do it: Swagger UI at `/docs`, ReDoc at
+`/redoc`, and the OpenAPI schema at `/openapi.json`. All three answer 200 as soon as the API is up.
 
 `next_after: null` means you have read every page written so far, not that the crawl is over. A
 crawl still running will have more later. `GET /crawls/{id}` is what says whether it finished.
@@ -87,10 +96,37 @@ redirect chain, so DNS that changed since the crawl was queued, or a public host
 the metadata address, is caught at the hop. A seed the worker refuses ends the crawl `failed` with
 `seed rejected: <reason>`.
 
-The CLI has no such guard, because crawling `http://localhost:8000` from a terminal is normal and
-the CLI reaches nothing its user cannot already reach.
+The robots.txt fetch is guarded the same way. `load_robots` takes an optional guard, awaits it on
+the robots URL and on every redirect target before requesting it, and treats a refusal as an
+unreadable robots.txt: the crawl is blocked, exactly as a 5xx would block it. The worker passes its
+seed guard, so a robots.txt that redirects into the private network is refused like a seed redirect.
+
+The CLI passes no guard and runs no such check, because crawling `http://localhost:8000` from a
+terminal is normal and the CLI reaches nothing its user cannot already reach.
 [design-decisions.md](design-decisions.md#the-service-guards-its-seed-host-the-cli-does-not) has the
 full argument.
+
+## Crawls run at least once
+
+A crawl can run twice. The pages you read never mix two runs.
+
+The worker crawls the site, flushes its pages, then writes the terminal state. When that final write
+fails, it retries for up to `LEASE_SECONDS`, sleeping `HEARTBEAT_SECONDS` between attempts. If it
+still cannot write, it logs an error and stops. The row is then left `running` with a stale
+heartbeat, the reaper requeues it, and the next worker to claim it deletes every page of the earlier
+attempt and crawls the site again.
+
+That is the trade the lease design buys, and it is worth stating rather than discovering:
+
+- **A crawl runs at least once, possibly more.** Budget for a site being fetched twice after a
+  database outage or a hard worker kill.
+- **The stored pages always come from one lease.** Every claim wipes the crawl's existing pages
+  first, and every insert is fenced by the lease, so a reader never sees two attempts interleaved.
+- **A re-sent page batch is not an error.** Inserts are idempotent on `(crawl_id, seq)`, so a batch
+  whose commit acknowledgement was lost lands as a no-op instead of failing a crawl that finished.
+
+A worker that keeps its lease writes the crawl once. Duplicate work is the failure path, not the
+normal one.
 
 ## Configuration
 
@@ -100,7 +136,8 @@ unparsable value exits 2 with a message naming the variable.
 - `cp .env.example .env` to start: every variable is listed there with its default and a one-line
   comment on what it does.
 - `docker compose up` loads `.env` on its own (`env_file`), but always builds the containers'
-  `DATABASE_URL` itself against `postgres:5432`, so a host-side value in `.env` never leaks in.
+  `DATABASE_URL` itself against `postgres:5432` and sets `API_HOST` and `API_PORT` itself, so a
+  host-side value in `.env` never leaks in and the composed API always answers on `8000`.
 - Outside Docker, `make migrate`, `make api`, `make worker` and `make test-service` run through
   `uv run --env-file .env` when `.env` exists, falling back to their built-in defaults otherwise.
 - Two databases: `crawler` for `migrate`/`api`/`worker`, `crawler_test` for `test-service`, so a
@@ -114,7 +151,7 @@ unparsable value exits 2 with a message naming the variable.
 | `API_PORT` | `8000` | api |
 | `WORKER_POLL_SECONDS` | `1.0` | worker, when the queue is empty or the database is unreachable |
 | `HEARTBEAT_SECONDS` | `5.0` | worker lease refresh and cancel check |
-| `LEASE_SECONDS` | `30.0` | reaper: how long silence is tolerated. The worker also gives up its own lease after this many seconds of failed heartbeats |
+| `LEASE_SECONDS` | `30.0` | reaper: how long silence is tolerated. The worker also gives up its own lease after this many seconds of failed heartbeats, and retries a failed final write for the same span |
 | `MAX_ATTEMPTS` | `3` | reaper: requeue below this, fail at it |
 | `PAGE_BATCH_SIZE` | `100` | `DbReporter` size trigger |
 | `PAGE_FLUSH_SECONDS` | `0.2` | `DbReporter` time trigger |
@@ -122,15 +159,25 @@ unparsable value exits 2 with a message naming the variable.
 `DATABASE_URL` is a SQLAlchemy async URL, for example
 `postgresql+asyncpg://crawler:crawler@localhost:55432/crawler`.
 
-`.env.example` also carries the `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`
-and `API_PORT` values `docker-compose.yml` reads, and the `URL_CRAWLER_TEST_DATABASE_URL` the
-service tests read.
+A `LEASE_SECONDS` below `HEARTBEAT_SECONDS` is rejected at startup, naming both values. The worker
+would otherwise give up its lease before it had ever refreshed it.
+
+`.env.example` also carries the `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` and
+`POSTGRES_PORT` values `docker-compose.yml` reads, and the `URL_CRAWLER_TEST_DATABASE_URL` the
+service tests read. `API_HOST` and `API_PORT` are listed there for local runs only: compose sets
+both itself and publishes the API on `8000` whatever `.env` says, so a stray host-side `API_PORT`
+cannot move the port the composed API answers on. `.env` is in `.dockerignore`, so it never reaches
+a build context either.
+
+The worker container carries a 1 GB memory limit and a 20-second `stop_grace_period`. Docker's
+default grace period is 10 seconds and the worker's final page flush is allowed 15, so the default
+would kill it mid-flush on every deploy.
 
 ## Testing the service
 
 ```bash
 make db-up          # postgres on :55432 plus the crawler_test database
-make test-service   # 77 tests against it; the suite migrates that database itself
+make test-service   # 84 tests against it; the suite migrates that database itself
 ```
 
 [testing.md](testing.md) covers what those tests assert and why they need a real Postgres.
@@ -148,7 +195,7 @@ make test-service   # 77 tests against it; the suite migrates that database itse
 - **The seed guard resolves, it does not pin.** The check and the fetch each resolve the host, so a
   name whose DNS answer changes between them is not covered. Pinning the address the fetch connects
   to is the fix.
-- **No UI.** `curl` and `jq` are the client, plus `/docs` for the schema.
+- **No UI.** `curl` and `jq` are the client, plus Swagger UI at `/docs` for poking at the schema.
 - **One crawl per worker process.** Scale by running more workers. A worker that ran several crawls
   at once would need per-crawl connection accounting for no gain a second container does not give.
 

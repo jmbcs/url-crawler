@@ -74,7 +74,21 @@ apex, with no link from the `www` host; the wide scope is a two-line change to `
 robots.txt is fetched once for the final seed host, parsed with `urllib.robotparser`, and applied to
 every candidate URL before it enters the frontier. The seed itself is the one URL fetched before
 robots.txt is read, because its redirect chain decides which host's robots.txt applies. A
-`Crawl-delay` is honoured by serializing a sleep across the workers.
+`Crawl-delay` is honoured by serializing a sleep across the workers, and the crawler logs one
+warning naming the delay and the pages per hour it implies, so a throttled crawl does not look hung.
+
+Matching follows RFC 9309 section 2.2 rather than the standard library. The stdlib parser still does
+the parsing, the group selection and `Crawl-delay`; the matcher on top of it is this repository's:
+
+- `*` matches any run of characters, and a trailing `$` anchors the end of the path.
+- The longest matching rule wins, whatever order the rules appear in the file.
+- `Allow` breaks a tie against a `Disallow` of the same length.
+- An empty `Disallow:` allows everything, which is what the standard says it means.
+- Percent-escapes are folded on both the rule and the URL, so `/caf%C3%A9` and `/café` match.
+
+That is a behaviour change, not a tidy-up. The stdlib matcher ignores wildcards entirely and takes
+the first rule in file order, so a site writing `Disallow: /*.pdf$` used to be ignored on that line
+and is now obeyed.
 
 What the fetch gets back decides the policy:
 
@@ -87,6 +101,11 @@ What the fetch gets back decides the policy:
 
 A complete disallow ends the run there: exit code 3, and a message naming `--ignore-robots`. So does
 a robots.txt that reads fine and disallows the seed.
+
+`load_robots` takes an optional guard, awaited on the robots URL and on every redirect target before
+that URL is requested. A refusal is treated as an unreadable robots.txt and takes the same
+complete-disallow path. The service passes its seed guard, so a robots.txt redirect into the private
+network is refused exactly like a seed redirect; the CLI passes nothing and behaves as before.
 
 `rel="nofollow"` links are followed and printed. `nofollow` is a hint to search engines about link
 equity, not an access control; robots.txt is the access control, and this tool obeys that one.
@@ -107,6 +126,12 @@ port dropped, an empty path turned into `/`, the fragment dropped, dot segments 
 becomes `/b`, and a trailing slash survives), and userinfo removed. Credentials identify the caller
 rather than the resource, so stripping `user:password@` at normalization is what keeps a password
 out of the frontier, the output and every log line.
+
+A URL carrying a byte below space, or DEL, is rejected outright, wherever in the URL it sits.
+`urlsplit` drops a tab or a newline silently, so the same href could parse two ways, and a printed
+ESC or BEL drives the terminal of whoever is reading the output. Rejecting the byte stops a crawled
+page from writing live escape sequences into stdout, and turns a NUL in a posted seed into a 422
+rather than a 500.
 
 `canonical_key()` is the dedup identity and is never printed. It folds percent-encoding on top of
 the normal form: hex digits uppercased, unreserved characters decoded, non-ASCII encoded. So `/café`
@@ -143,6 +168,14 @@ chunks; `--request-budget` (60 seconds by default) caps the whole request includ
 because a server that trickles one byte at a time never trips a read timeout. Exceeding the budget
 is reported as a `timeout` and retried like one. The budget has to be above 0 and at least
 `--timeout`, and the CLI exits 2 when it is not.
+
+`--max-bytes` bounds memory as well as download size, which it did not always. The body is read
+undecoded and inflated incrementally under the cap, so a response is too large the moment either the
+compressed or the decoded stream passes it, and a 4 KB gzip that expands to a gigabyte is rejected
+mid-inflation instead of arriving in memory first. The client pins `accept-encoding: gzip, deflate`,
+so brotli or zstd cannot show up if either library becomes importable in some future environment; an
+encoding the inflater does not handle, or a compressed body that is corrupt, is a `protocol` error
+and is not retried.
 
 *Rejected:* Tenacity (a dependency, a decorator, and `Retry-After` still needs custom code) and
 retrying by exception base class. *Reverses if:* retry behaviour needs to differ per host, which is
@@ -199,6 +232,16 @@ Redis were both considered and both rejected:
   its last page batch before it records the terminal state, so a flush that fails turns the crawl
   into `failed` rather than a `finished` crawl with pages missing.
 
+A lease bought with a heartbeat has one honest cost: delivery is at-least-once. A worker that
+crawls a site and then cannot write the result retries that write for a lease, and if it still
+fails, the reaper requeues the crawl and another worker crawls the site again. Exactly-once would
+need the crawl and its terminal write in one transaction, which is not available across an HTTP
+crawl and a database. So the design pays for it on the read side instead: every claim wipes the
+crawl's pages, every insert is fenced by the lease, and inserts are idempotent, so the stored pages
+always come from a single attempt.
+[service.md](service.md#crawls-run-at-least-once) states the property for anyone building on the
+API.
+
 *Rejected:* Celery with Redis or RabbitMQ, and a Redis-only job store. *Reverses if:* the API grows
 replicas that need a shared cache or a rate limiter, or a worker starts running several crawls at
 once and needs a per-host lease that a `SETNX` with a TTL expresses better than a row. Sub-second
@@ -224,13 +267,13 @@ server-side code.
 ## The service guards its seed host, the CLI does not
 
 The service resolves the seed host before it queues anything and refuses whatever points inside the
-network it runs in: `localhost`, any `*.localhost`, `*.local` or `*.internal` name, a private IP
-literal, and any host resolving to a loopback, private, link-local (`169.254.169.254` included),
-multicast, reserved or unspecified address, or an IPv6 unique-local one. A host that does not
-resolve is refused too. `POST /crawls` answers 422 with `{"detail": {"seed": "<reason>"}}`, and the
-worker repeats the check before the first seed fetch and before every hop of the seed's redirect
-chain, so a public host that redirects to the metadata address is caught at the hop rather than
-fetched. A worker that rejects a seed ends the crawl `failed` with `seed rejected: <reason>`.
+network it runs in;
+[service.md](service.md#the-seed-host-guard) lists exactly what counts as private.
+`POST /crawls` answers 422 with `{"detail": {"seed": "<reason>"}}`, and the worker repeats the check
+before the first seed fetch, before every hop of the seed's redirect chain, and on the robots.txt
+fetch and its redirects, so a public host that redirects to the metadata address is caught at the
+hop rather than fetched. A worker that rejects a seed ends the crawl `failed` with
+`seed rejected: <reason>`.
 
 The CLI has no such check, on purpose. Pointing it at `http://localhost:8000` is a normal thing to
 do while developing, and the CLI reaches nothing the person typing the command cannot already reach.

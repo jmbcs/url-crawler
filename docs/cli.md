@@ -40,7 +40,7 @@ Ctrl-C, which reaches the same exit code 130.
 | `--concurrency N` | `10` | Worker tasks, and the only bound on requests in flight. |
 | `--timeout SECONDS` | `10.0` | Read and write timeout, so it bounds the gap between chunks. Connect and pool timeouts are fixed at 5s. |
 | `--max-pages N` | unlimited | Stop after N pages and log how many URLs were left unvisited. |
-| `--max-bytes BYTES` | `5000000` | Skip a page whose body exceeds this, by header or while streaming. |
+| `--max-bytes BYTES` | `5000000` | Skip a page whose body exceeds this, by `Content-Length`, by the compressed stream, or by the decoded one. It bounds memory, not just download size: a small gzip that expands to a gigabyte is rejected while it inflates. |
 | `--request-budget SECONDS` | `60.0` | Total time for one request including the body. Exceeding it counts as a timeout and is retried like one. Must be above 0 and at least `--timeout`. |
 | `--format {text,jsonl}` | `text` | JSONL emits one object per page plus a final summary object. |
 | `--ignore-robots` | off | Crawl paths robots.txt disallows. |
@@ -59,7 +59,7 @@ environment variables instead; see [service.md](service.md).
 | `0` | The crawl finished, or stopped cleanly at `--max-pages`. |
 | `1` | Unexpected internal error, logged with a traceback. |
 | `2` | Usage error: bad flag value, unsupported scheme, or an unparseable seed URL. |
-| `3` | The seed could not be fetched, robots.txt disallows it, or robots.txt could not be read (see [design decisions](design-decisions.md#robots-on-by-default-and-unreadable-means-blocked)). |
+| `3` | The seed could not be fetched, its redirect chain loops or runs past five hops, robots.txt disallows it, or robots.txt could not be read (see [design decisions](design-decisions.md#robots-on-by-default-and-unreadable-means-blocked)). |
 | `4` | The failure fuse aborted the crawl after 20 consecutive failures. |
 | `130` | Interrupted by SIGINT or SIGTERM. Pages already crawled are flushed and the summary is printed. |
 
@@ -100,6 +100,12 @@ requested, and a robots-blocked path that is printed but not followed. `/missing
 its status rather than dropped. `/redirect` is a page whose one link is its target.
 `/off-site-redirect` prints a link to another host and stops there. `/file.pdf` is rejected on its
 content type, before its body is read. `/leaf` is a valid page with no links, not an error.
+
+Anchors that are not http(s) never appear. A `mailto:`, `tel:`, `javascript:` or `data:` href is
+dropped by normalization, so it is neither printed nor followed. The brief asks for every URL found
+on a page, and this is the fourth place that phrase had to be read narrowly; the other three are at
+the top of the [README](../README.md). Anything carrying a control byte is dropped the same way, so
+a page cannot write escape sequences into your terminal through the crawler's output.
 
 The summary goes to stderr, so it never pollutes a pipe:
 

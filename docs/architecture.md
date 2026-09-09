@@ -12,7 +12,7 @@ inside the fetcher, so the crawler only ever sees a finished `FetchResult` or `F
 ```mermaid
 flowchart TD
     CLI["cli.py<br>flags, wiring, signals, summary"] --> Crawler["crawler.py<br>seed redirects, worker pool, scope, fuse"]
-    Crawler --> Robots["robots.py<br>robots.txt once, deny when unreadable, Crawl-delay"]
+    Crawler --> Robots["robots.py<br>robots.txt once, RFC 9309 matching, deny when unreadable"]
     Crawler <--> Frontier["frontier.py<br>asyncio.Queue plus seen keys"]
     Crawler --> Fetcher["fetcher.py<br>streaming GET, content-type and size gates"]
     Fetcher --> Retry["retry.py<br>classify, full-jitter backoff, Retry-After"]
@@ -41,11 +41,11 @@ pipeline turns an unexpected exception into one failed page instead of a cancell
 | `config.py` | frozen `CrawlConfig`, validated once in `__post_init__` |
 | `crawler.py` | seed redirect chain, the optional seed guard, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
 | `frontier.py` | `asyncio.Queue` plus a set of canonical keys: dedup, backlog size, termination |
-| `fetcher.py` | one streaming GET per attempt, the whole-request budget, content-type and size gates, retry loop |
+| `fetcher.py` | one streaming GET per attempt, the whole-request budget, content-type and size gates, bounded incremental decompression, retry loop |
 | `retry.py` | pure classification, full-jitter backoff, `Retry-After` parsing |
 | `parser.py` | link extraction with selectolax, `<base href>`, per-page dedup in document order |
-| `urls.py` | `prepare_seed`; `normalize`, which drops userinfo and resolves dot segments; `canonical_key`, which folds percent-encoding and sorts query names; `resolve_href`; `HostScope` |
-| `robots.py` | fetch robots.txt once through up to five redirects, parse it, `Crawl-delay`, deny everything when it cannot be read |
+| `urls.py` | `prepare_seed`; `normalize`, which drops userinfo, resolves dot segments and rejects control bytes; `canonical_key`, which folds percent-encoding and sorts query names; `resolve_href`; `HostScope` |
+| `robots.py` | fetch robots.txt once through up to five redirects behind an optional guard, RFC 9309 matching, `Crawl-delay`, deny everything when it cannot be read |
 | `http.py` | the one `httpx.AsyncClient` factory, shared by the CLI and the service worker |
 | `reporting.py` | `Reporter` protocol with a text and a JSONL implementation |
 | `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats`, and the `summary` both the JSONL output and the service store |
@@ -78,7 +78,9 @@ flowchart LR
 
 The service refuses a seed that points inside its own network. `POST /crawls` resolves the host and
 answers 422 before it writes a row, and the worker repeats the check before the first seed fetch and
-before every hop of the seed's redirect chain. A rejected seed ends the crawl `failed` with
+before every hop of the seed's redirect chain. The worker hands the same guard to `load_robots`, so
+a robots.txt that redirects into the private network is refused at the hop and blocks the crawl the
+way an unreadable robots.txt does. A rejected seed ends the crawl `failed` with
 `seed rejected: <reason>`. [service.md](service.md) lists what counts as private, and
 [design-decisions.md](design-decisions.md#the-service-guards-its-seed-host-the-cli-does-not) says
 why the CLI has no such guard.
@@ -140,14 +142,22 @@ WHERE id = $2 RETURNING ...;
 
 `SKIP LOCKED` tells Postgres to pass over rows another transaction has locked instead of waiting for
 them, and it is why no broker is needed. Two workers running that statement at the same instant take
-different rows instead of blocking on each other, which a test asserts with two concurrent claims. A
-claim whose `attempts` is already above zero deletes that crawl's earlier pages first, so a retried
-crawl never returns a mix of two attempts.
+different rows instead of blocking on each other, which a test asserts with two concurrent claims.
+Every claim deletes that crawl's existing pages first, unconditionally: `seq` restarts at 1 on each
+lease, so a claim always begins from an empty page set and a retried crawl never returns a mix of
+two attempts.
 
 While the crawl runs, the worker heartbeats every `HEARTBEAT_SECONDS`: one `UPDATE` that refreshes
 `heartbeat_at`, stores the current stats snapshot, and returns `cancel_requested`. The `UPDATE`
 matches on `worker_id` too, so a worker that lost its lease gets no row back, learns it no longer
 owns the crawl, and stops writing.
+
+The heartbeat gives up on real elapsed time, not on a count of nominal intervals: it remembers the
+clock reading of the last successful write and lets the lease go once `LEASE_SECONDS` of wall time
+have passed since then. A call that hangs for a minute therefore costs a minute, the way it should.
+The asyncpg driver is built with a 5-second connect timeout and a 10-second command timeout, so
+claim, finish, release and heartbeat fail against a black-holed connection instead of waiting on it
+forever.
 
 `finish` and `release` answer the same question: each returns whether its `UPDATE` matched a row. A
 worker that matched nothing logs a warning naming the state it wanted to record, rather than
@@ -161,9 +171,11 @@ lease period, not a stuck job. Reaping runs once when the worker starts and then
 one-second poll would repeat that work for nothing.
 
 On `SIGTERM` the worker does better than that: it cancels the crawl, writes the pages it has, and
-releases the row back to `queued` at once, so no lease period is lost. The attempt counter is left
-as it is, and only the reaper consults `MAX_ATTEMPTS`, so a rolling deploy re-runs the crawl instead
-of failing it. A cancel request that raced the shutdown wins: the release matches only a row with
+releases the row back to `queued` at once, so no lease period is lost. The release also gives the
+attempt back, decrementing `attempts` toward a floor of zero, because a clean handoff is not a
+failed try. Only the reaper's requeue leaves its increment standing, so a hundred rolling deploys
+never push a crawl to `MAX_ATTEMPTS` while a genuinely stuck crawl still runs out of attempts. A
+cancel request that raced the shutdown wins: the release matches only a row with
 `cancel_requested = false`, and when it matches nothing the worker records `aborted` instead.
 
 ## Surviving a database outage
@@ -179,7 +191,15 @@ Pages are written by `DbReporter`, which buffers whatever the crawler reports an
 `page()` method never awaits, so a slow database slows the flusher and not the crawl loop. A failed
 insert keeps its rows in the buffer and the flusher retries them on the next tick. The flush after
 the crawl ends is the last attempt: if it fails, the crawl is recorded `failed` with that error, and
-a crawl that was cancelled keeps its own reason with the write error appended to it.
+a crawl that was cancelled keeps its own reason with the write error appended to it. Inserts are
+idempotent on `(crawl_id, seq)`, so a batch re-sent after a lost commit acknowledgement lands as a
+no-op rather than failing a crawl that had already finished.
+
+Recording that terminal state is itself retried. The worker keeps trying `finish` for up to
+`LEASE_SECONDS`, sleeping `HEARTBEAT_SECONDS` between attempts, and gives up with an error log if
+the write never lands. The crawl is then left `running` with a stale heartbeat for the reaper to
+requeue, which is why a crawl can run more than once.
+[service.md](service.md#crawls-run-at-least-once) states that property and what it costs.
 
 Every insert is fenced by the lease. It locks the crawl row `FOR SHARE` and writes only while that
 row is still `running` under this worker id, in the same transaction. A worker whose lease was

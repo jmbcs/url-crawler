@@ -18,8 +18,9 @@ reading them.
   (`crawler.py`).
 - **robots.txt fetched once.** One request per run, then in-memory matching per candidate URL
   (`robots.py`).
-- **Streaming with an early exit.** The content-type gate rejects a PDF before its body is read, and
-  the size cap aborts mid-stream (`fetcher.py`).
+- **Streaming with an early exit.** The content-type gate rejects a PDF before its body is read, the
+  size cap aborts mid-stream, and a compressed body is inflated incrementally under the same cap, so
+  memory is bounded by `--max-bytes` rather than by what the server chose to send (`fetcher.py`).
 - **Bodies dropped after parse.** Only the seen keys and the queue stay resident, so memory does not
   grow with page size (`crawler.py`, `frontier.py`).
 - **selectolax on the loop.** The lexbor C parser is fast enough that parsing never blocks the IO it
