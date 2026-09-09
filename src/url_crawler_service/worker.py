@@ -72,8 +72,7 @@ class Worker:
         if crawl is None:
             return False
         log.info("claimed crawl %s for %s", crawl.id, crawl.seed)
-        state = await self.run_job(crawl, stop=stop)
-        log.info("crawl %s is now %s", crawl.id, state.value)
+        await self.run_job(crawl, stop=stop)
         return True
 
     async def run_forever(self, stop: asyncio.Event) -> None:
@@ -141,9 +140,7 @@ class Worker:
         """Fail a crawl whose stored config no longer builds, rather than crash the worker."""
         error = f"{type(exc).__name__}: {exc}"
         log.error("crawl %s has an unusable config: %s", crawl.id, error)
-        snapshot = summary(CrawlStats(), 0.0)
-        await self._repo.finish(crawl.id, self._worker_id, CrawlState.FAILED, snapshot, error)
-        return CrawlState.FAILED
+        return await self._finish(crawl, CrawlState.FAILED, summary(CrawlStats(), 0.0), error)
 
     async def _outcome(
         self, crawl: Crawl, crawl_task: asyncio.Task[CrawlOutcome]
@@ -203,17 +200,32 @@ class Worker:
             return state
         if self._interrupt is _Interrupt.STOPPED:
             return await self._requeue(crawl, stats)
-        await self._repo.finish(crawl.id, self._worker_id, state, stats, error)
+        return await self._finish(crawl, state, stats, error)
+
+    async def _finish(
+        self, crawl: Crawl, state: CrawlState, stats: dict[str, object], error: str | None
+    ) -> CrawlState:
+        if await self._repo.finish(crawl.id, self._worker_id, state, stats, error):
+            log.info("crawl %s is now %s", crawl.id, state.value)
+        else:
+            log.warning(
+                "crawl %s finished as %s but the lease was already lost; nothing recorded",
+                crawl.id,
+                state.value,
+            )
         return state
 
     async def _requeue(self, crawl: Crawl, stats: dict[str, object]) -> CrawlState:
         """Hand the crawl back to the queue, unless a cancel request raced the shutdown."""
         if await self._repo.release(crawl.id, self._worker_id):
+            log.info("crawl %s is queued again", crawl.id)
             return CrawlState.QUEUED
-        await self._repo.finish(
-            crawl.id, self._worker_id, CrawlState.ABORTED, stats, CANCELLED_ERROR
-        )
-        return CrawlState.ABORTED
+        stored = await self._repo.get(crawl.id)
+        if stored is not None and stored.cancel_requested:
+            log.info("crawl %s was cancelled while the worker was stopping", crawl.id)
+        else:
+            log.warning("crawl %s could not be requeued; another worker owns it", crawl.id)
+        return await self._finish(crawl, CrawlState.ABORTED, stats, CANCELLED_ERROR)
 
     async def _heartbeat(
         self,

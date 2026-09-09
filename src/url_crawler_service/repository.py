@@ -100,16 +100,18 @@ class CrawlRepository:
         state: CrawlState,
         stats: dict[str, object],
         error: str | None = None,
-    ) -> None:
+    ) -> bool:
+        """Record the terminal state; False when this worker no longer owns the crawl."""
         if state not in TERMINAL_STATES:
             raise ValueError(f"{state} is not a terminal state")
         statement = (
             update(Crawl)
             .where(Crawl.id == crawl_id, Crawl.worker_id == worker_id)
             .values(state=state.value, finished_at=func.now(), stats=stats, error=error)
+            .returning(Crawl.id)
         )
         async with self._sessions() as session, session.begin():
-            await session.execute(statement)
+            return (await session.execute(statement)).first() is not None
 
     async def release(self, crawl_id: uuid.UUID, worker_id: str) -> bool:
         """Requeue a crawl on graceful shutdown, unless a cancel request raced it."""

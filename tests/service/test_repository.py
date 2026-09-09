@@ -179,10 +179,13 @@ async def test_finish_only_applies_to_the_owning_worker(
     crawl = await repo.create("https://a.test/", CONFIG)
     await repo.claim("worker-1")
 
-    await repo.finish(crawl.id, "worker-2", CrawlState.FAILED, {}, error="wrong worker")
+    assert await repo.finish(crawl.id, "worker-2", CrawlState.FAILED, {}, "wrong worker") is False
     assert await state_of(engine, crawl.id) == CrawlState.RUNNING
 
-    await repo.finish(crawl.id, "worker-1", CrawlState.FAILED, {"pages_total": 1}, error="boom")
+    recorded = await repo.finish(
+        crawl.id, "worker-1", CrawlState.FAILED, {"pages_total": 1}, "boom"
+    )
+    assert recorded is True
     stored = await repo.get(crawl.id)
     assert stored is not None
     assert stored.state == CrawlState.FAILED

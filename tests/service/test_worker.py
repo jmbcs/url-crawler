@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
@@ -71,9 +72,9 @@ class RecordingRepository(CrawlRepository):
         state: CrawlState,
         stats: dict[str, object],
         error: str | None = None,
-    ) -> None:
+    ) -> bool:
         self.finished.append(state)
-        await super().finish(crawl_id, worker_id, state, stats, error)
+        return await super().finish(crawl_id, worker_id, state, stats, error)
 
 
 class UnreapableRepository(CrawlRepository):
@@ -117,6 +118,19 @@ def slow_client_factory(site: FakeSite) -> ClientFactory:
             base_url=f"http://{site.host}",
             follow_redirects=False,
         )
+
+    return build
+
+
+def hanging_client_factory() -> ClientFactory:
+    """Never answers, so the crawl is still on its seed when the worker stops."""
+
+    async def hang(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(NEVER)
+        raise AssertionError("the request should have been cancelled")
+
+    def build(config: CrawlConfig) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(hang))
 
     return build
 
@@ -401,6 +415,104 @@ async def test_run_job_appends_the_flush_error_to_a_cancelled_crawl(
     assert stored is not None
     assert stored.error is not None
     assert stored.error.startswith(f"{CANCELLED_ERROR}; OperationalError")
+
+
+async def test_run_job_logs_the_state_it_recorded(
+    repo: CrawlRepository, fake_site: FakeSite, caplog: pytest.LogCaptureFixture
+) -> None:
+    crawl_id, claimed = await claim_one(repo, f"http://{fake_site.host}/")
+    worker = Worker(
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
+    )
+
+    with caplog.at_level(logging.INFO, logger="url_crawler_service.worker"):
+        await worker.run_job(claimed)
+
+    assert f"crawl {crawl_id} is now finished" in caplog.text
+
+
+async def test_run_job_warns_when_the_finish_write_matches_no_row(
+    repo: CrawlRepository, engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    crawl_id, claimed = await claim_one(repo, "http://site.test/")
+    worker = Worker(
+        repo,
+        build_settings(heartbeat_seconds=NEVER),
+        worker_id=WORKER_ID,
+        client_factory=unreachable_client_factory(),
+        seed_guard=allow_any_host,
+    )
+    await steal_lease(engine, crawl_id)
+
+    with caplog.at_level(logging.INFO, logger="url_crawler_service.worker"):
+        state = await worker.run_job(claimed)
+
+    assert state is CrawlState.FAILED
+    assert f"crawl {crawl_id} finished as failed but the lease was already lost" in caplog.text
+    assert "is now failed" not in caplog.text
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.RUNNING
+
+
+async def test_a_cancel_that_races_the_shutdown_is_logged_and_aborts_the_crawl(
+    repo: CrawlRepository, caplog: pytest.LogCaptureFixture
+) -> None:
+    crawl_id, claimed = await claim_one(repo, "http://site.test/")
+    worker = Worker(
+        repo,
+        build_settings(heartbeat_seconds=NEVER),
+        worker_id=WORKER_ID,
+        client_factory=hanging_client_factory(),
+        seed_guard=allow_any_host,
+    )
+    stop = asyncio.Event()
+
+    caplog.set_level(logging.INFO, logger="url_crawler_service.worker")
+    job = asyncio.create_task(worker.run_job(claimed, stop=stop))
+    await asyncio.sleep(0.1)
+    assert await repo.request_cancel(crawl_id) is CrawlState.RUNNING
+    stop.set()
+    state = await asyncio.wait_for(job, timeout=10.0)
+
+    assert state is CrawlState.ABORTED
+    assert f"crawl {crawl_id} was cancelled while the worker was stopping" in caplog.text
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.ABORTED
+
+
+async def test_a_stopped_worker_warns_when_it_cannot_requeue_a_stolen_crawl(
+    repo: CrawlRepository, engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    crawl_id, claimed = await claim_one(repo, "http://site.test/")
+    worker = Worker(
+        repo,
+        build_settings(heartbeat_seconds=NEVER),
+        worker_id=WORKER_ID,
+        client_factory=hanging_client_factory(),
+        seed_guard=allow_any_host,
+    )
+    stop = asyncio.Event()
+
+    caplog.set_level(logging.INFO, logger="url_crawler_service.worker")
+    job = asyncio.create_task(worker.run_job(claimed, stop=stop))
+    await asyncio.sleep(0.1)
+    await steal_lease(engine, crawl_id)
+    stop.set()
+    state = await asyncio.wait_for(job, timeout=10.0)
+
+    assert state is CrawlState.ABORTED
+    assert f"crawl {crawl_id} could not be requeued" in caplog.text
+    assert "was cancelled while the worker was stopping" not in caplog.text
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.RUNNING
+    assert stored.worker_id == "another-worker"
 
 
 async def test_run_job_fails_a_crawl_whose_stored_config_is_unusable(
