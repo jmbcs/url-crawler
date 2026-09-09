@@ -21,6 +21,7 @@ def scope() -> HostScope:
         "https://example.com:443/",
         "http://example.com/insecure",
         "https://user@example.com/a",
+        "https://user:pass@example.com/a",
     ],
 )
 def test_scope_allows(scope: HostScope, url: str) -> None:

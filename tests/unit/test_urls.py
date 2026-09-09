@@ -29,12 +29,26 @@ from url_crawler.urls import (
         ("http://example.com/?b=2&a=1", "http://example.com/?b=2&a=1"),
         ("http://example.com/?utm_source=x&ref=y", "http://example.com/?utm_source=x&ref=y"),
         ("http://example.com/?empty=", "http://example.com/?empty="),
-        ("http://User:Pass@example.com/a", "http://User:Pass@example.com/a"),
-        ("http://user@example.com:80/", "http://user@example.com/"),
+        ("http://User:Pass@example.com/a", "http://example.com/a"),
+        ("http://user@example.com:80/", "http://example.com/"),
+        ("http://user:pass@example.com:8080/a", "http://example.com:8080/a"),
         ("http://example.com/a%20b", "http://example.com/a%20b"),
         ("http://example.com/Caf%C3%A9", "http://example.com/Caf%C3%A9"),
         ("http://[::1]:8080/x", "http://[::1]:8080/x"),
         ("http://[::1]:80/x", "http://[::1]/x"),
+        ("http://example.com/café", "http://example.com/café"),
+        ("http://example.com/a/./b", "http://example.com/a/b"),
+        ("http://example.com/a/../b", "http://example.com/b"),
+        ("http://example.com/a/b/..", "http://example.com/a/"),
+        ("http://example.com/a/b/.", "http://example.com/a/b/"),
+        ("http://example.com/a/b/../..", "http://example.com/"),
+        ("http://example.com/../../x", "http://example.com/x"),
+        ("http://example.com/..", "http://example.com/"),
+        ("http://example.com/.", "http://example.com/"),
+        ("http://example.com/./", "http://example.com/"),
+        ("http://example.com/a/..?q=1", "http://example.com/?q=1"),
+        ("http://example.com/a//b", "http://example.com/a//b"),
+        ("http://example.com/a/./b/../c/", "http://example.com/a/c/"),
     ],
 )
 def test_normalize_canonical_form(url: str, expected: str) -> None:
@@ -84,6 +98,8 @@ def test_normalize_rejects_url_over_length_limit() -> None:
         "HTTP://EXAMPLE.com/Path?b=2&a=1#frag",
         "http://example.com:80/dir/",
         "http://user@example.com/a",
+        "http://example.com/a/../b/./c/",
+        "http://example.com/café?q=café",
     ],
 )
 def test_normalize_is_idempotent(url: str) -> None:
@@ -136,11 +152,24 @@ def test_resolve_href_against_protocol_relative_base_keeps_http() -> None:
     [
         ("https://example.com/?b=2&a=1", "https://example.com/?a=1&b=2"),
         ("https://example.com/?a=1&b=2", "https://example.com/?a=1&b=2"),
-        ("https://example.com/?z=1&z=0", "https://example.com/?z=0&z=1"),
+        ("https://example.com/?z=1&z=0", "https://example.com/?z=1&z=0"),
+        ("https://example.com/?b=1&a=2", "https://example.com/?a=2&b=1"),
+        ("https://example.com/?a=2&b=1", "https://example.com/?a=2&b=1"),
+        ("https://example.com/?a=2&a=1", "https://example.com/?a=2&a=1"),
+        ("https://example.com/%7Euser", "https://example.com/~user"),
+        ("https://example.com/a%2db", "https://example.com/a-b"),
+        ("https://example.com/a%2Eb", "https://example.com/a.b"),
+        ("https://example.com/a%5fb", "https://example.com/a_b"),
+        ("https://example.com/a%41b", "https://example.com/aAb"),
+        ("https://example.com/a%3fb", "https://example.com/a%3Fb"),
+        ("https://example.com/a%20b", "https://example.com/a%20b"),
+        ("https://example.com/?q=%7evalue", "https://example.com/?q=~value"),
+        ("https://example.com/?q=%26raw", "https://example.com/?q=%26raw"),
+        ("https://example.com/café", "https://example.com/caf%C3%A9"),
+        ("https://example.com/caf%c3%a9", "https://example.com/caf%C3%A9"),
         ("https://example.com/", "https://example.com/"),
         ("https://example.com/a/b", "https://example.com/a/b"),
         ("https://example.com/a?single=1", "https://example.com/a?single=1"),
-        ("http://user@example.com/a?b=2&a=1", "http://user@example.com/a?a=1&b=2"),
     ],
 )
 def test_canonical_key(url: str, expected: str) -> None:
@@ -151,6 +180,32 @@ def test_canonical_key_matches_for_reordered_query() -> None:
     assert canonical_key("https://example.com/s?b=2&a=1") == canonical_key(
         "https://example.com/s?a=1&b=2"
     )
+
+
+def test_canonical_key_matches_for_escaped_non_ascii() -> None:
+    assert canonical_key("https://example.com/café") == canonical_key(
+        "https://example.com/caf%C3%A9"
+    )
+
+
+def test_canonical_key_keeps_the_order_of_repeated_parameters() -> None:
+    assert canonical_key("https://example.com/s?a=2&a=1") != canonical_key(
+        "https://example.com/s?a=1&a=2"
+    )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/",
+        "https://example.com/café?b=2&a=1",
+        "https://example.com/a%20b?q=%7evalue",
+        "https://example.com/%7Euser?z=1&z=0",
+    ],
+)
+def test_canonical_key_is_idempotent(url: str) -> None:
+    once = canonical_key(url)
+    assert canonical_key(once) == once
 
 
 @pytest.mark.parametrize(
