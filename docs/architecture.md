@@ -1,13 +1,12 @@
 # Architecture
 
-How the crawler is put together: the core modules, the worker loop, and the pieces the crawl service
-adds around them.
+How the crawler is put together: the core modules, the worker loop, and the pieces the crawl
+service adds around them.
 
 ## The core
 
-One process, one event loop, one HTTP client. `cli.py` parses flags and wires the objects together,
-`crawler.py` owns the crawl, and everything else is a small single-purpose module. Retry lives
-inside the fetcher, so the crawler only ever sees a finished `FetchResult` or `FetchError`.
+One process, one event loop, one HTTP client. `cli.py` wires the objects together and `crawler.py`
+owns the crawl; everything else is a small single-purpose module.
 
 ```mermaid
 flowchart TD
@@ -24,45 +23,41 @@ flowchart TD
     Crawler --> Reporter["reporting.py<br>TextReporter or JsonlReporter to stdout"]
 ```
 
-## The worker loop
-
-A worker takes a URL from the frontier (the frontier is the set of URLs found but not yet crawled),
-fetches it, parses the body, reports the page, then enqueues the links that pass scope and robots
-before calling `task_done()`. The crawl ends when the queue is empty and every claimed URL is done
-(`Queue.join()`), so no sentinel values and no timeouts are involved. A catch-all around the per-URL
-pipeline turns an unexpected exception into one failed page instead of a cancelled `TaskGroup`.
-
 ## Core modules
 
 | Module | Responsibility |
 | --- | --- |
-| `cli.py` | argparse flags, object wiring, SIGINT and SIGTERM, exit codes, banner and progress line, stderr summary |
+| `cli.py` | argparse flags, object wiring, SIGINT and SIGTERM, exit codes, banner, stderr summary |
 | `progress.py` | start banner and the redrawing progress line, both stderr and TTY-only |
 | `config.py` | frozen `CrawlConfig`, validated once in `__post_init__` |
-| `crawler.py` | seed redirect chain, the optional seed guard, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
+| `crawler.py` | seed redirect chain, optional seed guard, scope re-anchoring, worker pool, per-page pipeline, max-pages drain, failure fuse |
 | `frontier.py` | `asyncio.Queue` plus a set of canonical keys: dedup, backlog size, termination |
-| `fetcher.py` | one streaming GET per attempt, the whole-request budget, content-type and size gates, bounded incremental decompression, retry loop |
+| `fetcher.py` | one streaming GET per attempt, whole-request budget, content-type and size gates, bounded incremental decompression, retry loop |
 | `retry.py` | pure classification, full-jitter backoff, `Retry-After` parsing |
 | `parser.py` | link extraction with selectolax, `<base href>`, per-page dedup in document order |
-| `urls.py` | `prepare_seed`; `normalize`, which drops userinfo, resolves dot segments and rejects control bytes; `canonical_key`, which folds percent-encoding and sorts query names; `resolve_href`; `HostScope` |
-| `robots.py` | fetch robots.txt once through up to five redirects behind an optional guard, RFC 9309 matching, `Crawl-delay`, deny everything when it cannot be read |
+| `urls.py` | `prepare_seed`, `normalize` (drops userinfo, resolves dot segments, rejects control bytes), `canonical_key`, `resolve_href`, `HostScope` |
+| `robots.py` | fetch robots.txt once through up to five redirects behind an optional guard, RFC 9309 group selection and matching, `Crawl-delay`, deny everything when unreadable |
 | `http.py` | the one `httpx.AsyncClient` factory, shared by the CLI and the service worker |
 | `reporting.py` | `Reporter` protocol with a text and a JSONL implementation |
-| `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats`, and the `summary` both the JSONL output and the service store |
+| `models.py` | `FetchResult`, `FetchError`, `FetchErrorKind`, `PageResult`, `CrawlStats`, `summary` |
 
-`src/url_crawler_service/` holds the optional service and imports the core; the core never imports
-it.
+`src/url_crawler_service/` imports the core; the core never imports it. `__version__` in
+`src/url_crawler/__init__.py` is the one source the banner, `--version` and the user agent share.
 
-The version has one source: `__version__` in `src/url_crawler/__init__.py`, which
-`[tool.hatch.version]` reads when it builds the wheel. The banner, `--version` and the default user
-agent all read the same string, so nothing can drift from the published version.
+## The worker loop
+
+1. Take a URL from the frontier (found but not yet crawled).
+2. Fetch it.
+3. Parse the body for links.
+4. Report the page.
+5. Enqueue the links that pass scope and robots.
+6. Call `task_done()`, repeating until `Queue.join()` returns: no sentinel values, no timeouts.
+7. An exception anywhere in the pipeline fails that one page, not the whole `TaskGroup`.
 
 ## The crawl service
 
 The API validates a request, writes a row and reads rows back. The worker claims a queued crawl,
-runs it, and heartbeats its lease while it does. A lease is a claim with an expiry: the worker keeps
-it alive by writing a timestamp, and loses it if it goes quiet. Nothing coordinates the workers, so
-N workers are N processes.
+runs it, and heartbeats its lease. Nothing coordinates the workers, so N workers are N processes.
 
 ```mermaid
 flowchart LR
@@ -76,26 +71,22 @@ flowchart LR
 
 ### The seed host guard
 
-The service refuses a seed that points inside its own network. `POST /crawls` resolves the host and
-answers 422 before it writes a row, and the worker repeats the check before the first seed fetch and
-before every hop of the seed's redirect chain. The worker hands the same guard to `load_robots`, so
-a robots.txt that redirects into the private network is refused at the hop and blocks the crawl the
-way an unreadable robots.txt does. A rejected seed ends the crawl `failed` with
-`seed rejected: <reason>`. [service.md](service.md) lists what counts as private, and
-[design-decisions.md](design-decisions.md#the-service-guards-its-seed-host-the-cli-does-not) says
-why the CLI has no such guard.
+`POST /crawls` refuses a seed pointing inside the service's own network, and the worker repeats the
+check on every redirect hop and on robots.txt. [service.md](service.md#the-seed-host-guard) lists
+what counts as private; [design-decisions.md](design-decisions.md#the-service-guards-its-seed-host-the-cli-does-not)
+says why the CLI has no such guard.
 
 ### Service modules
 
 | Module | Responsibility |
 | --- | --- |
 | `settings.py` | `Settings.from_env()`, validation, `SettingsError` naming the bad variable |
-| `db.py` | declarative `Base`, async engine, session factory |
+| `db.py` | declarative `Base`, async engine (driver connect and command timeouts), session factory |
 | `orm.py` | the `crawl` and `page` tables and `CrawlState` |
 | `alembic/` | the migration environment and the versions `alembic upgrade head` applies |
 | `models.py` | `PageRow` and the `PageResult` to row conversion |
 | `repository.py` | every query, each in its own short transaction: claim, heartbeat, finish, release, reap, cancel, lease-fenced inserts and page reads |
-| `reporter.py` | `DbReporter`, the batching `Reporter` the worker hands to the core crawler, retrying whatever an insert rejected |
+| `reporter.py` | `DbReporter`, the batching `Reporter` the worker hands to the core crawler |
 | `worker.py` | claim loop, heartbeat, cancellation, graceful shutdown, terminal state |
 | `api.py` | the FastAPI app, its routes and the lifespan that disposes the engine |
 | `schemas.py` | request and response models, and the shared seed validation |
@@ -103,32 +94,20 @@ why the CLI has no such guard.
 
 ## Data model
 
-Two tables, both created by the Alembic migration in `src/url_crawler_service/alembic/versions/`.
-
 | Table | Columns |
 | --- | --- |
 | `crawl` | `id` uuid PK, `seed`, `config` jsonb, `state`, `created_at`, `started_at`, `finished_at`, `heartbeat_at`, `worker_id`, `attempts`, `cancel_requested`, `stats` jsonb, `error`. Index on `(state, created_at)`. |
 | `page` | PK `(crawl_id, seq)` with `crawl_id` cascading from `crawl`, plus `url`, `status`, `error_kind`, `error_message`, `links` jsonb, `fetched_at`. |
 
-`state` is one of `queued`, `running`, `finished`, `failed`, `aborted`. `seq` is assigned by the
-worker, one-based and gap-free, which is what makes it a cursor. One page is one row, so the links
-of a page are stored as a JSON array rather than a join table: nothing queries across links, and a
-consumer always asks for whole pages.
-
-### Alembic layout
-
-`alembic.ini` at the repository root points `script_location` at
-`src/url_crawler_service/alembic`, leaves `sqlalchemy.url` empty, and runs `ruff check --fix` and
-`ruff format` on every generated revision as post-write hooks. `env.py` reads `DATABASE_URL` from
-the environment instead of the ini file.
-
-Migrations are generated, never written by hand: `make migration m="what changed"` runs
-`alembic revision --autogenerate`. A service test runs `alembic check` and fails when the committed
-migration and the ORM models have drifted apart, and another downgrades to base and upgrades again.
+`state` is one of `queued`, `running`, `finished`, `failed`, `aborted`. `seq` is one-based and
+gap-free. A page's links are a JSON array, not a join table, so a consumer always reads whole pages.
+Migrations are generated only, via `make migration m="..."`; a test checks for ORM drift and
+round-trips a downgrade and upgrade.
 
 ## Claim, heartbeat, reaper
 
-A worker claims the oldest queued crawl in one transaction:
+A worker claims the oldest queued crawl in one transaction, deleting that crawl's existing pages
+unconditionally so `seq` restarts at 1. `SKIP LOCKED` is why no broker is needed:
 
 ```sql
 SELECT crawl.id, crawl.attempts FROM crawl
@@ -140,83 +119,23 @@ UPDATE crawl SET state = 'running', started_at = now(), heartbeat_at = now(),
 WHERE id = $2 RETURNING ...;
 ```
 
-`SKIP LOCKED` tells Postgres to pass over rows another transaction has locked instead of waiting for
-them, and it is why no broker is needed. Two workers running that statement at the same instant take
-different rows instead of blocking on each other, which a test asserts with two concurrent claims.
-Every claim deletes that crawl's existing pages first, unconditionally: `seq` restarts at 1 on each
-lease, so a claim always begins from an empty page set and a retried crawl never returns a mix of
-two attempts.
-
-While the crawl runs, the worker heartbeats every `HEARTBEAT_SECONDS`: one `UPDATE` that refreshes
-`heartbeat_at`, stores the current stats snapshot, and returns `cancel_requested`. The `UPDATE`
-matches on `worker_id` too, so a worker that lost its lease gets no row back, learns it no longer
-owns the crawl, and stops writing.
-
-The heartbeat gives up on real elapsed time, not on a count of nominal intervals: it remembers the
-clock reading of the last successful write and lets the lease go once `LEASE_SECONDS` of wall time
-have passed since then. A call that hangs for a minute therefore costs a minute, the way it should.
-The asyncpg driver is built with a 5-second connect timeout and a 10-second command timeout, so
-claim, finish, release and heartbeat fail against a black-holed connection instead of waiting on it
-forever.
-
-`finish` and `release` answer the same question: each returns whether its `UPDATE` matched a row. A
-worker that matched nothing logs a warning naming the state it wanted to record, rather than
-reporting a state it never wrote.
-
-The worker also reaps: any crawl still `running` whose `heartbeat_at` is older than `LEASE_SECONDS`
-is settled in one pass. A cancelled one becomes `aborted`, one below `MAX_ATTEMPTS` goes back to
-`queued`, and the rest become `failed` with `error = "worker lost"`. A `kill -9` therefore costs one
-lease period, not a stuck job. Reaping runs once when the worker starts and then at most once per
-`LEASE_SECONDS`, because every worker issues the same three updates and running them on each
-one-second poll would repeat that work for nothing.
-
-On `SIGTERM` the worker does better than that: it cancels the crawl, writes the pages it has, and
-releases the row back to `queued` at once, so no lease period is lost. The release also gives the
-attempt back, decrementing `attempts` toward a floor of zero, because a clean handoff is not a
-failed try. Only the reaper's requeue leaves its increment standing, so a hundred rolling deploys
-never push a crawl to `MAX_ATTEMPTS` while a genuinely stuck crawl still runs out of attempts. A
-cancel request that raced the shutdown wins: the release matches only a row with
-`cancel_requested = false`, and when it matches nothing the worker records `aborted` instead.
-
-## Surviving a database outage
-
-The claim loop catches every exception, not only SQLAlchemy's. A Postgres that is down surfaces as
-`ConnectionRefusedError` or a DNS failure well before it is a `DBAPIError`, and either one used to
-end the worker process. It now logs the traceback, waits `WORKER_POLL_SECONDS` and polls again, so a
-database restart costs a poll interval. The compose file restarts the api and worker containers
-`unless-stopped`, for the crashes this does not cover.
-
-Pages are written by `DbReporter`, which buffers whatever the crawler reports and inserts it in one
-`executemany` when the buffer reaches `PAGE_BATCH_SIZE` or `PAGE_FLUSH_SECONDS` elapses. Its
-`page()` method never awaits, so a slow database slows the flusher and not the crawl loop. A failed
-insert keeps its rows in the buffer and the flusher retries them on the next tick. The flush after
-the crawl ends is the last attempt: if it fails, the crawl is recorded `failed` with that error, and
-a crawl that was cancelled keeps its own reason with the write error appended to it. Inserts are
-idempotent on `(crawl_id, seq)`, so a batch re-sent after a lost commit acknowledgement lands as a
-no-op rather than failing a crawl that had already finished.
-
-Recording that terminal state is itself retried. The worker keeps trying `finish` for up to
-`LEASE_SECONDS`, sleeping `HEARTBEAT_SECONDS` between attempts, and gives up with an error log if
-the write never lands. The crawl is then left `running` with a stale heartbeat for the reaper to
-requeue, which is why a crawl can run more than once.
-[service.md](service.md#crawls-run-at-least-once) states that property and what it costs.
-
-Every insert is fenced by the lease. It locks the crawl row `FOR SHARE` and writes only while that
-row is still `running` under this worker id, in the same transaction. A worker whose lease was
-reaped raises `LeaseLostError` instead of mixing its pages into the attempt another worker now
-owns; it logs a warning, records no terminal state, and leaves the row to its new owner.
+- The heartbeat gives up on real elapsed time, backed by driver connect and command timeouts.
+- `finish` and `release` report whether their `UPDATE` matched a row; a graceful `release` also
+  returns the attempt it took, since a clean handoff is not a failed try.
+- The reaper settles a `running` crawl with a stale heartbeat: cancelled becomes `aborted`, below
+  `MAX_ATTEMPTS` requeues, the rest become `failed`.
+- Page inserts are idempotent on `(crawl_id, seq)` and fenced by the lease, so a re-sent batch is a
+  no-op. [service.md](service.md#crawls-run-at-least-once) states what this design costs.
 
 ## Cancel semantics
 
-`DELETE /crawls/{id}` is a request, not a kill. It answers 202 with the resulting state for any
-known crawl, and 404 otherwise.
+`DELETE /crawls/{id}` is a request, not a kill: 202 with the resulting state, 404 when unknown.
 
-- A `queued` crawl becomes `aborted` immediately, with `error = "cancelled before start"`, and no
-  worker ever claims it.
-- A `running` crawl gets `cancel_requested = true`. Its worker sees the flag on the next heartbeat,
-  cancels the crawl task, flushes the pages already crawled, and records `aborted` with
-  `error = "cancelled by request"`. Partial results stay readable.
-- A finished, failed or already aborted crawl is left exactly as it is.
+| Crawl state | Result |
+| --- | --- |
+| `queued` | Becomes `aborted` at once, `error = "cancelled before start"`. No worker ever claims it. |
+| `running` | `cancel_requested = true`. The worker sees it on the next heartbeat, cancels the task, flushes crawled pages, records `aborted`. |
+| finished, failed, aborted | Left exactly as it is. |
 
 ---
 
