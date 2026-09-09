@@ -264,3 +264,91 @@ async def test_load_robots_returns_deny_all_on_undecodable_body() -> None:
         policy = await load_robots(client, "https://example.com/", USER_AGENT)
 
     assert isinstance(policy, DenyAll)
+
+
+METADATA_URL = "http://169.254.169.254/latest/meta-data/"
+
+
+async def deny_metadata(url: str) -> str | None:
+    return "169.254.169.254 is a private address" if "169.254.169.254" in url else None
+
+
+async def allow_everything(url: str) -> str | None:
+    return None
+
+
+async def test_load_robots_denies_when_a_guard_rejects_a_redirect_hop() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(302, headers={"location": METADATA_URL})
+
+    async with client_for(handler) as client:
+        policy = await load_robots(client, "https://example.com/", USER_AGENT, guard=deny_metadata)
+
+    assert isinstance(policy, DenyAll)
+    assert requested == ["https://example.com/robots.txt"]
+
+
+async def test_load_robots_denies_when_a_guard_rejects_the_initial_url() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        return httpx.Response(200, content=ROBOTS_BODY)
+
+    async with client_for(handler) as client:
+        policy = await load_robots(client, METADATA_URL, USER_AGENT, guard=deny_metadata)
+
+    assert isinstance(policy, DenyAll)
+    assert requested == []
+
+
+async def test_load_robots_guards_the_initial_url_and_every_hop() -> None:
+    guarded: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "example.com":
+            return httpx.Response(302, headers={"location": "https://cdn.test/robots.txt"})
+        return httpx.Response(200, content=ROBOTS_BODY)
+
+    async def guard(url: str) -> str | None:
+        guarded.append(url)
+        return None
+
+    async with client_for(handler) as client:
+        policy = await load_robots(client, "https://example.com/", USER_AGENT, guard=guard)
+
+    assert guarded == ["https://example.com/robots.txt", "https://cdn.test/robots.txt"]
+    assert policy.allows("https://example.com/private") is False
+
+
+async def test_load_robots_with_a_permissive_guard_keeps_the_default_behaviour() -> None:
+    requested: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        if len(requested) == 1:
+            return httpx.Response(301, headers={"location": "/hop.txt"})
+        return httpx.Response(200, content=ROBOTS_BODY)
+
+    async with client_for(handler) as client:
+        policy = await load_robots(
+            client, "https://example.com/", USER_AGENT, guard=allow_everything
+        )
+
+    assert requested == ["/robots.txt", "/hop.txt"]
+    assert policy.allows("https://example.com/private") is False
+    assert policy.crawl_delay == 2.0
+
+
+async def test_load_robots_warns_with_the_guard_reason(caplog: pytest.LogCaptureFixture) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=ROBOTS_BODY)
+
+    async with client_for(handler) as client:
+        with caplog.at_level(logging.WARNING, logger="url_crawler.robots"):
+            await load_robots(client, METADATA_URL, USER_AGENT, guard=deny_metadata)
+
+    assert "blocked: 169.254.169.254 is a private address" in caplog.text
