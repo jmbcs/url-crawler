@@ -14,12 +14,19 @@ _SUB_DELIMITERS = "!$&'()*+,;="
 _PATH_SAFE = f"/%:@{_SUB_DELIMITERS}"
 _QUERY_SAFE = f"{_PATH_SAFE}?"
 _PERCENT_ESCAPE = re.compile("%([0-9A-Fa-f]{2})")
+_CONTROL_CHARACTER = re.compile("[\x00-\x1f\x7f]")
 
 
 def normalize(url: str) -> str | None:
     """Return the canonical request form of url, or None if it is not a crawlable http(s) URL."""
+    text = url.strip()
+    # urlsplit drops tab and newline silently, and a printed ESC or BEL drives the reader's
+    # terminal, so control bytes are rejected before anything parses them.
+    if _CONTROL_CHARACTER.search(text):
+        return None
+
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(text)
         port = parts.port
     except ValueError:
         return None

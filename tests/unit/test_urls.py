@@ -239,3 +239,34 @@ def test_prepare_seed(typed: str, expected: str) -> None:
 def test_prepare_seed_rejects_other_schemes(typed: str) -> None:
     with pytest.raises(ValueError, match="unsupported URL scheme"):
         prepare_seed(typed)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/a\x1bb",
+        "http://example.com/a\x07b",
+        "http://example.com/a\x00b",
+        "http://example.com/a\nb",
+        "http://example.com/a\tb",
+        "http://example.com/a\rb",
+        "http://example.com/a\x7fb",
+        "http://example.com/?q=\x1b[2J",
+        "http://example.com/?q=a\x07b",
+        "http://example.com/?q=a\x00b",
+        "http://example.com/?q=a\tb",
+        "http://example.com/?q=a\x7fb",
+        "http://exa\x1bmple.com/",
+        "http://exa\x07mple.com/",
+        "http://exa\x00mple.com/",
+        "http://exa\tmple.com/",
+        "http://exa\x7fmple.com/",
+    ],
+)
+def test_normalize_rejects_control_characters(url: str) -> None:
+    assert normalize(url) is None
+
+
+@pytest.mark.parametrize("href", ["/a\x1bb", "/a\x00b", "/a\x07b", "/a\x7fb", "/?q=\x1b[2J"])
+def test_resolve_href_rejects_control_characters(href: str) -> None:
+    assert resolve_href(href, BASE) is None
