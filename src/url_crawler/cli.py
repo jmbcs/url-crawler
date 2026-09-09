@@ -135,7 +135,11 @@ async def _crawl(
 def _cancel_on_signal(task: asyncio.Task[CrawlOutcome]) -> None:
     loop = asyncio.get_running_loop()
     for number in CANCEL_SIGNALS:
-        loop.add_signal_handler(number, task.cancel)
+        try:
+            loop.add_signal_handler(number, task.cancel)
+        except NotImplementedError:
+            log.debug("this platform has no signal handlers; Ctrl-C raises KeyboardInterrupt")
+            return
 
 
 def _report_summary(reporter: Reporter, stats: CrawlStats, elapsed_seconds: float) -> None:

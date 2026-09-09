@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 
 import pytest
 
 from url_crawler import __version__
-from url_crawler.cli import _banner_enabled, _progress_enabled, build_parser, main
+from url_crawler.cli import (
+    _banner_enabled,
+    _cancel_on_signal,
+    _progress_enabled,
+    build_parser,
+    main,
+)
+from url_crawler.crawler import CrawlOutcome
 
 
 def parse(argv: list[str]) -> argparse.Namespace:
@@ -117,3 +125,20 @@ def test_progress_enabled(argv: list[str], stderr_isatty: bool, expected: bool) 
 )
 def test_banner_enabled(argv: list[str], stderr_isatty: bool, expected: bool) -> None:
     assert _banner_enabled(parse(argv), stderr_isatty) is expected
+
+
+async def test_cancel_on_signal_runs_where_signal_handlers_are_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def unsupported(*args: object) -> None:
+        raise NotImplementedError
+
+    async def finished() -> CrawlOutcome:
+        return CrawlOutcome(0, False, None)
+
+    monkeypatch.setattr(asyncio.get_running_loop(), "add_signal_handler", unsupported)
+    task = asyncio.create_task(finished())
+
+    _cancel_on_signal(task)
+
+    assert await task == CrawlOutcome(0, False, None)
