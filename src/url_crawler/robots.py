@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import urllib.robotparser
 from collections.abc import Awaitable, Callable
-from typing import Protocol
-from urllib.parse import urljoin, urlsplit
+from dataclasses import dataclass
+from typing import Any, Protocol
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
@@ -44,10 +46,18 @@ class DenyAll:
         return False
 
 
+@dataclass(frozen=True, slots=True)
+class _Rule:
+    pattern: re.Pattern[str]
+    length: int
+    allowance: bool
+
+
 class RobotsTxt:
     def __init__(self, parser: urllib.robotparser.RobotFileParser, user_agent: str) -> None:
         self._parser = parser
         self._user_agent = user_agent
+        self._rules = _group_rules(parser, user_agent)
 
     @property
     def crawl_delay(self) -> float | None:
@@ -55,7 +65,44 @@ class RobotsTxt:
         return float(delay) if delay is not None else None
 
     def allows(self, url: str) -> bool:
-        return self._parser.can_fetch(self._user_agent, url)
+        """RFC 9309 section 2.2.2: the longest matching rule decides, Allow breaking ties."""
+        target = _target_path(url)
+        matched = [rule for rule in self._rules if rule.pattern.match(target)]
+        if not matched:
+            return True
+        longest = max(rule.length for rule in matched)
+        return any(rule.allowance for rule in matched if rule.length == longest)
+
+
+def _group_rules(parser: urllib.robotparser.RobotFileParser, user_agent: str) -> list[_Rule]:
+    """The rules of the group that applies to user_agent, as matchable patterns."""
+    # The parsed groups carry the rule paths but are absent from the typeshed stub.
+    parsed: Any = parser
+    entry = next(
+        (group for group in parsed.entries if group.applies_to(user_agent)), parsed.default_entry
+    )
+    if entry is None:
+        return []
+    rules: list[_Rule] = []
+    for line in entry.rulelines:
+        path = unquote(line.path)
+        rules.append(_Rule(_rule_pattern(path), len(path), bool(line.allowance)))
+    return rules
+
+
+def _rule_pattern(path: str) -> re.Pattern[str]:
+    """RFC 9309 section 2.2.3: * matches any run of characters, a trailing $ anchors the end."""
+    anchored = path.endswith("$")
+    literal = path.removesuffix("$")
+    body = ".*".join(re.escape(part) for part in literal.split("*"))
+    return re.compile(f"{body}$" if anchored else body)
+
+
+def _target_path(url: str) -> str:
+    """The path and query a rule is matched against, with percent-escapes folded away."""
+    parts = urlsplit(url)
+    path = unquote(parts.path) or "/"
+    return f"{path}?{unquote(parts.query)}" if parts.query else path
 
 
 class _UnreachableError(Exception):

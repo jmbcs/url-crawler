@@ -367,3 +367,88 @@ async def test_load_robots_reads_a_gzipped_body() -> None:
 
     assert policy.allows("https://example.com/private") is False
     assert policy.crawl_delay == 2.0
+
+
+def policy_for(*lines: str) -> RobotsTxt:
+    parser = urllib.robotparser.RobotFileParser()
+    parser.parse(list(lines))
+    return RobotsTxt(parser, USER_AGENT)
+
+
+@pytest.mark.parametrize(
+    ("path", "allowed"),
+    [
+        ("/x.pdf", False),
+        ("/deep/dir/x.pdf", False),
+        ("/x.pdf.html", True),
+        ("/x.pdfx", True),
+        ("/private/a", False),
+        ("/private/", False),
+        ("/privateer", True),
+        ("/public", True),
+    ],
+)
+def test_robots_txt_matches_wildcards_and_end_anchors(path: str, allowed: bool) -> None:
+    policy = policy_for("User-agent: *", "Disallow: /*.pdf$", "Disallow: /private/*")
+
+    assert policy.allows(f"https://example.com{path}") is allowed
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ("Disallow: /docs", "Allow: /docs/public"),
+        ("Allow: /docs/public", "Disallow: /docs"),
+    ],
+)
+def test_robots_txt_prefers_the_longest_matching_rule(lines: tuple[str, str]) -> None:
+    policy = policy_for("User-agent: *", *lines)
+
+    assert policy.allows("https://example.com/docs/public/x") is True
+    assert policy.allows("https://example.com/docs/private") is False
+
+
+def test_robots_txt_lets_allow_win_a_tie() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /docs", "Allow: /docs")
+
+    assert policy.allows("https://example.com/docs/x") is True
+
+
+def test_robots_txt_treats_an_empty_disallow_as_allow_all() -> None:
+    policy = policy_for("User-agent: *", "Disallow:")
+
+    assert policy.allows("https://example.com/anything") is True
+
+
+def test_robots_txt_anchors_only_at_a_trailing_dollar() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /a$b")
+
+    assert policy.allows("https://example.com/a$b/c") is False
+
+
+@pytest.mark.parametrize(
+    ("rule", "path"),
+    [
+        ("/caf%C3%A9", "/café"),
+        ("/café", "/caf%C3%A9"),
+        ("/café", "/café"),
+        ("/caf%C3%A9", "/caf%C3%A9"),
+    ],
+)
+def test_robots_txt_matches_across_percent_encoding(rule: str, path: str) -> None:
+    policy = policy_for("User-agent: *", f"Disallow: {rule}")
+
+    assert policy.allows(f"https://example.com{path}") is False
+
+
+def test_robots_txt_matches_a_wildcard_in_the_query() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /*?session=")
+
+    assert policy.allows("https://example.com/page?session=1") is False
+    assert policy.allows("https://example.com/page?q=1") is True
+
+
+def test_robots_txt_allows_a_path_no_rule_matches() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /private")
+
+    assert policy.allows("https://example.com/") is True
