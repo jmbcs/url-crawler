@@ -117,7 +117,8 @@ class Crawler:
             self._stats.pages_ok += 1
             self._stats.redirects += 1
             self._reporter.page(PageResult(url, result.status, (target,)))
-            self._frontier.mark_seen(target)
+            if not self._frontier.mark_seen(target):
+                raise SeedError(f"seed redirect cycle at {target}")
             url = target
             result = await self._fetch_seed(url)
         if isinstance(result, FetchResult) and self._redirect_target(url, result) is not None:

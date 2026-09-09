@@ -508,6 +508,23 @@ async def test_seed_redirect_chain_exactly_at_the_cap_is_followed() -> None:
     assert crawl.stats.pages_total == 2
 
 
+async def test_seed_redirect_cycle_raises_seed_error_instead_of_looping() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            return httpx.Response(302, headers={"location": "/b"})
+        if request.url.path == "/b":
+            return httpx.Response(302, headers={"location": "/"})
+        return httpx.Response(200, content=b"<p>unreached</p>", headers=HTML_HEADERS)
+
+    recorded, requested = recording_handler(handler)
+    async with mock_client(recorded) as client:
+        with pytest.raises(SeedError, match=f"seed redirect cycle at {SEED}") as excinfo:
+            await run_crawl(client, config=CrawlConfig(respect_robots=False))
+
+    assert excinfo.value.exit_code == 3
+    assert requested == [SEED, "http://site.test/b"]
+
+
 async def test_seed_redirect_re_anchors_scope_to_the_final_host(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
