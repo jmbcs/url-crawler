@@ -238,6 +238,19 @@ async def test_healthz_is_503_when_the_database_is_down() -> None:
     assert response.json() == {"detail": "database unavailable"}
 
 
+async def test_the_app_awaits_its_shutdown_hook(repo: CrawlRepository) -> None:
+    stopped = asyncio.Event()
+
+    async def on_shutdown() -> None:
+        stopped.set()
+
+    app = create_app(repo, on_shutdown=on_shutdown)
+    async with app.router.lifespan_context(app):
+        assert not stopped.is_set()
+
+    assert stopped.is_set()
+
+
 def test_main_reports_a_missing_database_url(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from uuid import UUID
 
 import uvicorn
@@ -32,9 +33,21 @@ EXIT_OK = 0
 EXIT_CONFIG = 2
 
 
-def create_app(repo: CrawlRepository, *, events_interval_seconds: float = 2.0) -> FastAPI:
+def create_app(
+    repo: CrawlRepository,
+    *,
+    events_interval_seconds: float = 2.0,
+    on_shutdown: Callable[[], Awaitable[None]] | None = None,
+) -> FastAPI:
     """Build the HTTP API over one repository; the API never crawls, it only reads and writes."""
-    app = FastAPI(title="url-crawler service", version=__version__)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        yield
+        if on_shutdown is not None:
+            await on_shutdown()
+
+    app = FastAPI(title="url-crawler service", version=__version__, lifespan=lifespan)
 
     async def get_or_404(crawl_id: UUID) -> Crawl:
         crawl = await repo.get(crawl_id)
@@ -123,9 +136,10 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_CONFIG
     engine = create_engine(settings.database_url)
-    app = create_app(CrawlRepository(make_session_factory(engine)))
-    try:
-        uvicorn.run(app, host=settings.api_host, port=settings.api_port)
-    finally:
-        asyncio.run(engine.dispose())
+    repo = CrawlRepository(make_session_factory(engine))
+    uvicorn.run(
+        create_app(repo, on_shutdown=engine.dispose),
+        host=settings.api_host,
+        port=settings.api_port,
+    )
     return EXIT_OK
