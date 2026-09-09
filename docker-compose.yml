@@ -26,6 +26,8 @@ services:
         required: false
     environment: &env
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-crawler}:${POSTGRES_PASSWORD:-crawler}@postgres:5432/${POSTGRES_DB:-crawler}
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,7 +41,7 @@ services:
     env_file: *env_file
     environment: *env
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -52,6 +54,8 @@ services:
     restart: unless-stopped
     env_file: *env_file
     environment: *env
+    mem_limit: 1g
+    stop_grace_period: 20s
     depends_on:
       migrate:
         condition: service_completed_successfully
