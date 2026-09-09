@@ -17,12 +17,12 @@ RUN uv sync --frozen --no-dev --no-editable
 
 FROM base AS builder-service
 
-RUN uv sync --frozen --no-dev --group service --no-install-project
+RUN uv sync --frozen --no-dev --extra service --no-install-project
 
 COPY src/ src/
 COPY README.md ./
 COPY alembic.ini ./
-RUN uv sync --frozen --no-dev --group service --no-editable
+RUN uv sync --frozen --no-dev --extra service --no-editable
 
 FROM python:3.12-slim AS service
 

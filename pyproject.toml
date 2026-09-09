@@ -11,6 +11,15 @@ dependencies = [
     "selectolax>=0.4.11",
 ]
 
+[project.optional-dependencies]
+service = [
+    "alembic>=1.13",
+    "asyncpg>=0.30",
+    "fastapi>=0.115",
+    "sqlalchemy[asyncio]>=2.0",
+    "uvicorn>=0.30",
+]
+
 [project.scripts]
 url-crawler = "url_crawler.cli:main"
 url-crawler-api = "url_crawler_service.api:main"
@@ -57,19 +66,12 @@ source = ["url_crawler", "url_crawler_service"]
 branch = true
 
 [dependency-groups]
-service = [
-    "alembic>=1.13",
-    "asyncpg>=0.30",
-    "fastapi>=0.115",
-    "sqlalchemy[asyncio]>=2.0",
-    "uvicorn>=0.30",
-]
 dev = [
+    "url-crawler[service]",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.4.0",
     "ruff>=0.16.6",
-    { include-group = "service" },
 ]
