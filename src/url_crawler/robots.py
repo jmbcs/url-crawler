@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from url_crawler.fetcher import REDIRECT_STATUSES
+from url_crawler.fetcher import REDIRECT_STATUSES, read_bounded
 
 log = logging.getLogger(__name__)
 
@@ -115,19 +115,11 @@ async def _fetch_robots(
                 if response.status_code != 200:
                     log.info("robots.txt at %s returned status %s", url, response.status_code)
                     return None
-                return _decode(await _read_capped(response), url)
+                body, _ = await read_bounded(response, MAX_ROBOTS_BYTES)
+                return _decode(body, url)
     except httpx.HTTPError as exc:
         raise _UnreachableError(str(exc) or type(exc).__name__) from exc
     raise _UnreachableError(f"more than {MAX_ROBOTS_REDIRECTS} redirects")
-
-
-async def _read_capped(response: httpx.Response) -> bytes:
-    body = bytearray()
-    async for chunk in response.aiter_bytes():
-        body.extend(chunk)
-        if len(body) >= MAX_ROBOTS_BYTES:
-            break
-    return bytes(body[:MAX_ROBOTS_BYTES])
 
 
 def _decode(body: bytes, url: str) -> str:

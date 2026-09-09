@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import urllib.robotparser
+import zlib
 from collections.abc import Callable
 
 import httpx
@@ -352,3 +353,17 @@ async def test_load_robots_warns_with_the_guard_reason(caplog: pytest.LogCapture
             await load_robots(client, METADATA_URL, USER_AGENT, guard=deny_metadata)
 
     assert "blocked: 169.254.169.254 is a private address" in caplog.text
+
+
+async def test_load_robots_reads_a_gzipped_body() -> None:
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    compressed = compressor.compress(ROBOTS_BODY) + compressor.flush()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=compressed, headers={"content-encoding": "gzip"})
+
+    async with client_for(handler) as client:
+        policy = await load_robots(client, "https://example.com/", USER_AGENT)
+
+    assert policy.allows("https://example.com/private") is False
+    assert policy.crawl_delay == 2.0

@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
+import threading
 import time
-from collections.abc import AsyncIterator, Callable
+import zlib
+from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 import pytest
 
-from url_crawler.fetcher import Fetcher
+from url_crawler.fetcher import Fetcher, _Inflater
 from url_crawler.models import FetchError, FetchErrorKind, FetchResult
 
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -372,3 +376,180 @@ async def test_fetch_inside_the_request_budget_succeeds() -> None:
     result, _ = await fetch_with(handler, request_budget=5.0)
 
     assert result == FetchResult(URL, 200, HTML, "text/html", None, 1)
+
+
+def deflated(payload: bytes, wbits: int) -> bytes:
+    compressor = zlib.compressobj(9, zlib.DEFLATED, wbits)
+    return compressor.compress(payload) + compressor.flush()
+
+
+def gzip_bomb(plain_bytes: int) -> bytes:
+    compressor = zlib.compressobj(9, zlib.DEFLATED, 16 + zlib.MAX_WBITS)
+    block = bytes(1024 * 1024)
+    chunks = [compressor.compress(block) for _ in range(plain_bytes // len(block))]
+    chunks.append(compressor.flush())
+    return b"".join(chunks)
+
+
+@contextlib.contextmanager
+def serving(body: bytes, headers: dict[str, str]) -> Iterator[str]:
+    """A loopback HTTP server replying with body, so chunk boundaries are real socket reads."""
+
+    class RequestHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(body)
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RequestHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+async def fetch_over_loopback(url: str, *, max_bytes: int) -> FetchResult | FetchError:
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        fetcher = Fetcher(
+            client,
+            max_bytes=max_bytes,
+            sleep=RecordingSleep(),
+            rng=random.Random(0),
+            now=lambda: NOW,
+        )
+        return await fetcher.fetch(url)
+
+
+def record_inflated_sizes(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    produced: list[int] = []
+    inflate = _Inflater.inflate
+
+    def recording(self: _Inflater, chunk: bytes, max_length: int) -> bytes:
+        data = inflate(self, chunk, max_length)
+        produced.append(len(data))
+        return data
+
+    monkeypatch.setattr(_Inflater, "inflate", recording)
+    return produced
+
+
+async def test_gzip_bomb_is_rejected_without_inflating_past_the_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    max_bytes = 512_000
+    body = gzip_bomb(256 * 1024 * 1024)
+    # Under the raw cap, so only the bounded inflater can reject it.
+    assert len(body) < max_bytes
+    produced = record_inflated_sizes(monkeypatch)
+
+    with serving(body, {"content-type": "text/html", "content-encoding": "gzip"}) as url:
+        result = await fetch_over_loopback(url, max_bytes=max_bytes)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.TOO_LARGE
+    assert sum(produced) <= max_bytes + 1
+
+
+async def test_identity_body_over_the_cap_is_rejected_over_a_real_socket() -> None:
+    with serving(b"x" * 5_000, {"content-type": "text/html"}) as url:
+        result = await fetch_over_loopback(url, max_bytes=1_000)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.TOO_LARGE
+
+
+async def test_gzip_body_under_the_cap_is_decoded() -> None:
+    handler, _ = responder(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-encoding": "gzip"},
+            content=deflated(HTML, 16 + zlib.MAX_WBITS),
+        )
+    )
+
+    result, _ = await fetch_with(handler)
+
+    assert isinstance(result, FetchResult)
+    assert result.body == HTML
+
+
+@pytest.mark.parametrize("wbits", [zlib.MAX_WBITS, -zlib.MAX_WBITS])
+async def test_deflate_body_is_decoded_in_both_framings(wbits: int) -> None:
+    handler, _ = responder(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-encoding": "deflate"},
+            content=deflated(HTML, wbits),
+        )
+    )
+
+    result, _ = await fetch_with(handler)
+
+    assert isinstance(result, FetchResult)
+    assert result.body == HTML
+
+
+async def test_corrupt_compressed_body_is_a_protocol_error() -> None:
+    async def body() -> AsyncIterator[bytes]:
+        yield b"not gzip at all"
+
+    handler, _ = responder(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-encoding": "gzip"},
+            content=body(),
+        )
+    )
+
+    result, _ = await fetch_with(handler)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.PROTOCOL
+
+
+async def test_unsupported_content_encoding_is_a_protocol_error() -> None:
+    async def body() -> AsyncIterator[bytes]:
+        yield HTML
+
+    handler, _ = responder(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-encoding": "br"},
+            content=body(),
+        )
+    )
+
+    result, _ = await fetch_with(handler)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.PROTOCOL
+
+
+async def test_body_larger_than_a_lying_content_length_is_rejected() -> None:
+    async def body() -> AsyncIterator[bytes]:
+        for _ in range(3):
+            yield b"x" * 40
+
+    handler, _ = responder(
+        httpx.Response(
+            200,
+            headers={"content-type": "text/html", "content-length": "10"},
+            content=body(),
+        )
+    )
+
+    result, _ = await fetch_with(handler, max_bytes=100)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.TOO_LARGE

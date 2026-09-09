@@ -31,3 +31,8 @@ async def test_build_client_pools_connections_to_concurrency() -> None:
         pool = client._transport._pool  # type: ignore[attr-defined]
         assert pool._max_connections == 3
         assert pool._max_keepalive_connections == 3
+
+
+async def test_build_client_advertises_only_the_encodings_it_can_inflate() -> None:
+    async with build_client(CrawlConfig()) as client:
+        assert client.headers["accept-encoding"] == "gzip, deflate"

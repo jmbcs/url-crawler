@@ -21,5 +21,10 @@ def build_client(config: CrawlConfig) -> httpx.AsyncClient:
             max_keepalive_connections=config.concurrency,
         ),
         follow_redirects=False,
-        headers={"user-agent": config.user_agent},
+        headers={
+            "user-agent": config.user_agent,
+            # Pinned: httpx offers br and zstd when those libraries are importable, and
+            # read_bounded only inflates zlib framings.
+            "accept-encoding": "gzip, deflate",
+        },
     )
