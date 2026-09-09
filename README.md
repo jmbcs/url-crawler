@@ -103,8 +103,8 @@ docker compose up --build -d
 ```
 
 Builds the image, starts Postgres, runs `alembic upgrade head` to completion, then starts the API on
-`:8000` and one worker polling for queued crawls. The first build takes a few minutes; later ones
-are cached and the stack is up in seconds.
+`:8000` and one worker polling for queued crawls. A build from scratch takes about fifteen seconds
+once the base images are pulled, and later starts reuse the cache.
 
 **2. Confirm it is up.**
 
