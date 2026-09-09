@@ -97,3 +97,18 @@ def test_unparsable_number_raises_naming_the_variable(name: str) -> None:
 def test_out_of_range_value_raises_naming_the_variable(name: str, value: str) -> None:
     with pytest.raises(SettingsError, match=name):
         Settings.from_env({"DATABASE_URL": DATABASE_URL, name: value})
+
+
+def test_lease_shorter_than_heartbeat_raises_naming_both() -> None:
+    with pytest.raises(SettingsError, match=r"LEASE_SECONDS.*HEARTBEAT_SECONDS"):
+        Settings.from_env(
+            {"DATABASE_URL": DATABASE_URL, "HEARTBEAT_SECONDS": "60", "LEASE_SECONDS": "5"}
+        )
+
+
+def test_lease_equal_to_heartbeat_is_accepted() -> None:
+    settings = Settings.from_env(
+        {"DATABASE_URL": DATABASE_URL, "HEARTBEAT_SECONDS": "10", "LEASE_SECONDS": "10"}
+    )
+
+    assert settings.lease_seconds == settings.heartbeat_seconds == 10.0

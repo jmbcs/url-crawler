@@ -31,6 +31,11 @@ class Settings:
         _at_least_one("PAGE_BATCH_SIZE", self.page_batch_size)
         if not 0 < self.api_port < 65536:
             raise SettingsError(f"API_PORT must be between 1 and 65535, got {self.api_port}")
+        if self.lease_seconds < self.heartbeat_seconds:
+            raise SettingsError(
+                f"LEASE_SECONDS ({self.lease_seconds}) must be >= "
+                f"HEARTBEAT_SECONDS ({self.heartbeat_seconds})"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
