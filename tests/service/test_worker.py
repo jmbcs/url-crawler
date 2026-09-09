@@ -36,6 +36,7 @@ STATE_POLL_ATTEMPTS = 200
 NEVER = 30.0
 PUBLIC_ADDRESS = "93.184.216.34"
 PRIVATE_ADDRESS = "10.0.0.5"
+NEVER_RECORDED = 1_000
 
 
 def build_settings(**overrides: Any) -> Settings:
@@ -112,6 +113,41 @@ class FakeClock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class TickingClock:
+    """Jumps forward on every read, so a give-up deadline passes without the test sleeping."""
+
+    def __init__(self, step: float) -> None:
+        self.now = 0.0
+        self._step = step
+
+    def __call__(self) -> float:
+        self.now += self._step
+        return self.now
+
+
+class FlakyFinishRepository(CrawlRepository):
+    """Drops the first `failures` terminal writes the way a lost connection would."""
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], failures: int) -> None:
+        super().__init__(sessions)
+        self.failures = failures
+        self.attempts = 0
+
+    async def finish(
+        self,
+        crawl_id: uuid.UUID,
+        worker_id: str,
+        state: CrawlState,
+        stats: dict[str, object],
+        error: str | None = None,
+    ) -> bool:
+        self.attempts += 1
+        if self.failures:
+            self.failures -= 1
+            raise OperationalError("UPDATE crawl", {}, Exception("connection reset"))
+        return await super().finish(crawl_id, worker_id, state, stats, error)
 
 
 class UnwritableRepository(CrawlRepository):
@@ -709,3 +745,54 @@ async def test_run_job_gives_the_fetcher_the_configured_request_budget(
     await worker.run_job(claimed)
 
     assert budgets == [25.0]
+
+
+async def test_run_job_retries_the_final_write_and_records_the_crawl_once(
+    repo: CrawlRepository, engine: AsyncEngine, fake_site: FakeSite
+) -> None:
+    flaky = FlakyFinishRepository(make_session_factory(engine), failures=2)
+    crawl_id, claimed = await claim_one(flaky, f"http://{fake_site.host}/")
+    worker = Worker(
+        flaky,
+        build_settings(heartbeat_seconds=0.01),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
+    )
+
+    state = await worker.run_job(claimed)
+
+    assert state is CrawlState.FINISHED
+    assert flaky.attempts == 3
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.FINISHED
+    assert len(await repo.list_pages(crawl_id, limit=500)) == len(EXPECTED_CRAWLED)
+
+
+async def test_run_job_gives_up_on_the_final_write_once_the_lease_would_have_expired(
+    repo: CrawlRepository,
+    engine: AsyncEngine,
+    fake_site: FakeSite,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    settings = build_settings(heartbeat_seconds=NEVER)
+    unwritable = FlakyFinishRepository(make_session_factory(engine), failures=NEVER_RECORDED)
+    crawl_id, claimed = await claim_one(unwritable, f"http://{fake_site.host}/")
+    worker = Worker(
+        unwritable,
+        settings,
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
+        clock=TickingClock(settings.lease_seconds),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="url_crawler_service.worker"):
+        state = await worker.run_job(claimed)
+
+    assert state is CrawlState.FINISHED
+    assert f"crawl {crawl_id} completed as finished but could not be recorded" in caplog.text
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.RUNNING

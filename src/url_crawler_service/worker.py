@@ -224,7 +224,15 @@ class Worker:
     async def _finish(
         self, crawl: Crawl, state: CrawlState, stats: dict[str, object], error: str | None
     ) -> CrawlState:
-        if await self._repo.finish(crawl.id, self._worker_id, state, stats, error):
+        recorded = await self._write_terminal_state(crawl, state, stats, error)
+        if recorded is None:
+            log.error(
+                "crawl %s completed as %s but could not be recorded; "
+                "another worker will run it again",
+                crawl.id,
+                state.value,
+            )
+        elif recorded:
             log.info("crawl %s is now %s", crawl.id, state.value)
         else:
             log.warning(
@@ -233,6 +241,20 @@ class Worker:
                 state.value,
             )
         return state
+
+    async def _write_terminal_state(
+        self, crawl: Crawl, state: CrawlState, stats: dict[str, object], error: str | None
+    ) -> bool | None:
+        """Retry the final write until the lease expires anyway; None means it never landed."""
+        deadline = self._clock() + self._settings.lease_seconds
+        while True:
+            try:
+                return await self._repo.finish(crawl.id, self._worker_id, state, stats, error)
+            except Exception:
+                log.exception("crawl %s: the final write failed", crawl.id)
+                if self._clock() >= deadline:
+                    return None
+                await asyncio.sleep(self._settings.heartbeat_seconds)
 
     async def _requeue(self, crawl: Crawl, stats: dict[str, object]) -> CrawlState:
         """Hand the crawl back to the queue, unless a cancel request raced the shutdown."""
