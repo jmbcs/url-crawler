@@ -174,6 +174,7 @@ def test_jsonl_reporter_finish() -> None:
             "links_found": 10,
             "duplicates_dropped": 2,
             "retries": 4,
+            "pages_total": 4,
             "elapsed_seconds": 2.5,
         }
     }

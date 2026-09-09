@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Protocol, TextIO
 
-from url_crawler.models import CrawlStats, PageResult
+from url_crawler.models import CrawlStats, PageResult, summary
 
 
 class Reporter(Protocol):
@@ -54,15 +54,6 @@ class JsonlReporter:
         self._stream.flush()
 
     def finish(self, stats: CrawlStats, elapsed_seconds: float) -> None:
-        summary: dict[str, object] = {
-            "pages_ok": stats.pages_ok,
-            "pages_failed": dict(stats.pages_failed),
-            "pages_without_links": stats.pages_without_links,
-            "redirects": stats.redirects,
-            "links_found": stats.links_found,
-            "duplicates_dropped": stats.duplicates_dropped,
-            "retries": stats.retries,
-            "elapsed_seconds": round(elapsed_seconds, 3),
-        }
-        self._stream.write(json.dumps({"summary": summary}, ensure_ascii=False) + "\n")
+        record = {"summary": summary(stats, elapsed_seconds)}
+        self._stream.write(json.dumps(record, ensure_ascii=False) + "\n")
         self._stream.flush()

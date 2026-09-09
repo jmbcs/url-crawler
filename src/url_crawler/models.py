@@ -56,3 +56,18 @@ class CrawlStats:
     @property
     def pages_total(self) -> int:
         return self.pages_ok + sum(self.pages_failed.values())
+
+
+def summary(stats: CrawlStats, elapsed_seconds: float) -> dict[str, object]:
+    """The JSON-ready run summary, shared by the JSONL output and the service."""
+    return {
+        "pages_ok": stats.pages_ok,
+        "pages_failed": dict(stats.pages_failed),
+        "pages_without_links": stats.pages_without_links,
+        "redirects": stats.redirects,
+        "links_found": stats.links_found,
+        "duplicates_dropped": stats.duplicates_dropped,
+        "retries": stats.retries,
+        "pages_total": stats.pages_total,
+        "elapsed_seconds": round(elapsed_seconds, 3),
+    }

@@ -18,10 +18,9 @@ from url_crawler.config import CrawlConfig
 from url_crawler.crawler import Crawler, CrawlOutcome, SeedError
 from url_crawler.fetcher import Fetcher
 from url_crawler.http import build_client
-from url_crawler.models import CrawlStats
+from url_crawler.models import CrawlStats, summary
 from url_crawler.robots import load_robots
 from url_crawler_service.db import create_engine, make_session_factory
-from url_crawler_service.models import stats_snapshot
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.reporter import DbReporter
 from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLost
@@ -131,14 +130,14 @@ class Worker:
                 state, error = CrawlState.FAILED, flush_error
             elif state is CrawlState.ABORTED:
                 error = f"{error}; {flush_error}"
-        snapshot = stats_snapshot(stats, time.monotonic() - started)
+        snapshot = summary(stats, time.monotonic() - started)
         return await self._record(crawl, state, error, snapshot)
 
     async def _reject(self, crawl: Crawl, exc: Exception) -> CrawlState:
         """Fail a crawl whose stored config no longer builds, rather than crash the worker."""
         error = f"{type(exc).__name__}: {exc}"
         log.error("crawl %s has an unusable config: %s", crawl.id, error)
-        snapshot = stats_snapshot(CrawlStats(), 0.0)
+        snapshot = summary(CrawlStats(), 0.0)
         await self._repo.finish(crawl.id, self._worker_id, CrawlState.FAILED, snapshot, error)
         return CrawlState.FAILED
 
@@ -221,7 +220,7 @@ class Worker:
         silent_seconds = 0.0
         while True:
             await asyncio.sleep(self._settings.heartbeat_seconds)
-            snapshot = stats_snapshot(stats, time.monotonic() - started)
+            snapshot = summary(stats, time.monotonic() - started)
             try:
                 cancel_requested = await self._repo.heartbeat(crawl.id, self._worker_id, snapshot)
             except Exception:
