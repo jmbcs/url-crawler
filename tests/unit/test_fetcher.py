@@ -158,6 +158,16 @@ async def test_local_protocol_error_is_not_retried() -> None:
     assert delays == []
 
 
+async def test_decoding_error_is_reported_as_protocol_and_not_retried() -> None:
+    handler, requests = raiser(httpx.DecodingError("bad gzip"))
+
+    result, delays = await fetch_with(handler)
+
+    assert result == FetchError(URL, FetchErrorKind.PROTOCOL, None, "bad gzip", 1)
+    assert len(requests) == 1
+    assert delays == []
+
+
 @pytest.mark.parametrize(
     "exc",
     [httpx.UnsupportedProtocol("unsupported scheme"), httpx.InvalidURL("no host")],

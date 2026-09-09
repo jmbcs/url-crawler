@@ -17,6 +17,7 @@ REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _ERROR_KINDS: tuple[tuple[type[Exception], FetchErrorKind], ...] = (
     (httpx.TimeoutException, FetchErrorKind.TIMEOUT),
     (httpx.ProtocolError, FetchErrorKind.PROTOCOL),
+    (httpx.DecodingError, FetchErrorKind.PROTOCOL),
     (httpx.NetworkError, FetchErrorKind.CONNECTION),
     (httpx.UnsupportedProtocol, FetchErrorKind.INVALID_URL),
     (httpx.InvalidURL, FetchErrorKind.INVALID_URL),
