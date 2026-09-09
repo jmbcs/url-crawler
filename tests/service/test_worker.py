@@ -18,6 +18,7 @@ from tests.fakesite.app import asgi_app
 from tests.fakesite.site import EXPECTED_CRAWLED, FakeSite
 from tests.service.conftest import allow_any_host, client_factory
 from url_crawler.config import CrawlConfig
+from url_crawler.fetcher import Fetcher
 from url_crawler_service.db import create_engine, make_session_factory
 from url_crawler_service.hostcheck import private_host_reason
 from url_crawler_service.models import PageRow
@@ -167,8 +168,10 @@ def unreachable_client_factory() -> ClientFactory:
     return build
 
 
-async def claim_one(repo: CrawlRepository, seed: str) -> tuple[uuid.UUID, Any]:
-    crawl = await repo.create(seed, CONFIG)
+async def claim_one(
+    repo: CrawlRepository, seed: str, config: dict[str, Any] | None = None
+) -> tuple[uuid.UUID, Any]:
+    crawl = await repo.create(seed, CONFIG if config is None else config)
     claimed = await repo.claim(WORKER_ID)
     assert claimed is not None
     return crawl.id, claimed
@@ -680,3 +683,29 @@ async def test_run_forever_requeues_the_running_crawl_when_stopped(
     assert stored.error is None
     assert stored.finished_at is None
     assert recording.finished == []
+
+
+async def test_run_job_gives_the_fetcher_the_configured_request_budget(
+    repo: CrawlRepository, fake_site: FakeSite, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets: list[float] = []
+
+    def record(client: httpx.AsyncClient, **kwargs: Any) -> Fetcher:
+        budgets.append(kwargs["request_budget"])
+        return Fetcher(client, **kwargs)
+
+    monkeypatch.setattr("url_crawler_service.worker.Fetcher", record)
+    _, claimed = await claim_one(
+        repo, f"http://{fake_site.host}/", CONFIG | {"request_budget": 25.0}
+    )
+    worker = Worker(
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+        seed_guard=allow_any_host,
+    )
+
+    await worker.run_job(claimed)
+
+    assert budgets == [25.0]

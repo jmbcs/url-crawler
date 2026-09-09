@@ -121,7 +121,7 @@ class Worker:
         )
         client = self._client_factory(config)
         crawler = Crawler(
-            Fetcher(client, max_bytes=config.max_bytes),
+            Fetcher(client, max_bytes=config.max_bytes, request_budget=config.request_budget),
             reporter,
             config,
             stats,
