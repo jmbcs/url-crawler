@@ -397,6 +397,19 @@ async def test_insert_pages_stores_failures(repo: CrawlRepository) -> None:
     assert stored[0].links == []
 
 
+async def test_insert_pages_ignores_a_batch_that_was_already_written(
+    repo: CrawlRepository,
+) -> None:
+    crawl = await repo.create("https://a.test/", CONFIG)
+    await repo.claim("worker-1")
+    batch = [page(1), page(2)]
+
+    await repo.insert_pages(crawl.id, "worker-1", batch)
+    await repo.insert_pages(crawl.id, "worker-1", batch)
+
+    assert [row.seq for row in await repo.list_pages(crawl.id)] == [1, 2]
+
+
 async def test_insert_pages_refuses_a_worker_that_lost_the_lease(
     repo: CrawlRepository, engine: AsyncEngine
 ) -> None:

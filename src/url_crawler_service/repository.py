@@ -5,7 +5,8 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from url_crawler_service.models import PageRow
@@ -225,7 +226,12 @@ class CrawlRepository:
         async with self._sessions() as session, session.begin():
             if (await session.execute(owned)).first() is None:
                 raise LeaseLostError(f"crawl {crawl_id} is not running under {worker_id}")
-            await session.execute(insert(Page), values)
+            # A commit whose acknowledgement was lost is re-sent verbatim; seqs are per lease,
+            # so a conflict can only be a duplicate of a row this worker already wrote.
+            idempotent = postgresql.insert(Page).on_conflict_do_nothing(
+                index_elements=["crawl_id", "seq"]
+            )
+            await session.execute(idempotent, values)
 
     async def list_pages(
         self, crawl_id: uuid.UUID, *, after_seq: int = 0, limit: int = 100
