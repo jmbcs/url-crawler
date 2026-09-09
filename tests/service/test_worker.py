@@ -208,6 +208,21 @@ def hanging_client_factory() -> ClientFactory:
     return build
 
 
+def robots_redirect_client_factory(target: str, requested: list[str]) -> ClientFactory:
+    """A site whose robots.txt redirects somewhere else; every hop is recorded."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.path == "/robots.txt":
+            return httpx.Response(302, headers={"location": target})
+        return httpx.Response(200, html="<p>no links</p>")
+
+    def build(config: CrawlConfig) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(respond), follow_redirects=False)
+
+    return build
+
+
 def unreachable_client_factory() -> ClientFactory:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
@@ -835,3 +850,30 @@ async def test_the_heartbeat_gives_up_once_the_failing_calls_outlast_the_lease(
     stored = await repo.get(crawl_id)
     assert stored is not None
     assert stored.state == CrawlState.RUNNING
+
+
+async def test_run_job_refuses_a_robots_redirect_into_the_private_network(
+    repo: CrawlRepository,
+) -> None:
+    metadata_url = f"http://{PRIVATE_ADDRESS}/latest/meta-data/"
+    requested: list[str] = []
+
+    async def resolve_public(host: str) -> list[str]:
+        return [PUBLIC_ADDRESS]
+
+    crawl_id, claimed = await claim_one(repo, "http://site.test/")
+    worker = Worker(
+        repo,
+        build_settings(),
+        worker_id=WORKER_ID,
+        client_factory=robots_redirect_client_factory(metadata_url, requested),
+        seed_guard=partial(private_host_reason, resolve=resolve_public),
+    )
+
+    state = await worker.run_job(claimed)
+
+    assert state is CrawlState.FAILED
+    assert metadata_url not in requested
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.error == "robots.txt disallows the seed URL; use --ignore-robots to override"

@@ -125,7 +125,9 @@ class Worker:
             reporter,
             config,
             stats,
-            robots_loader=partial(load_robots, client, user_agent=config.user_agent),
+            robots_loader=partial(
+                load_robots, client, user_agent=config.user_agent, guard=self._seed_guard
+            ),
             seed_guard=self._seed_guard,
         )
 
