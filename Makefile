@@ -48,7 +48,8 @@ db-down:
 	docker compose stop postgres
 
 db-reset:
-	docker compose down -v
+	docker compose down -v postgres
+	$(MAKE) db-up
 
 migrate:
 	$(if $(ENV_FILE),,DATABASE_URL=$(DB_URL)) $(UV_RUN) alembic upgrade head
