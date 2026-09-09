@@ -13,7 +13,6 @@ from enum import StrEnum
 from functools import partial
 
 import httpx
-from sqlalchemy.exc import DBAPIError
 
 from url_crawler.config import CrawlConfig
 from url_crawler.crawler import Crawler, CrawlOutcome, SeedError
@@ -79,8 +78,8 @@ class Worker:
         while not stop.is_set():
             try:
                 claimed = await self.run_once(stop=stop)
-            except DBAPIError:
-                log.exception("database unavailable, retrying")
+            except Exception:
+                log.exception("the claim loop failed, retrying after the poll interval")
                 claimed = False
             if not claimed:
                 await self._wait_before_polling(stop)

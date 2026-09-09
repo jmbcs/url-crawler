@@ -15,7 +15,7 @@ from tests.fakesite.app import asgi_app
 from tests.fakesite.site import EXPECTED_CRAWLED, FakeSite
 from tests.service.conftest import client_factory
 from url_crawler.config import CrawlConfig
-from url_crawler_service.db import make_session_factory
+from url_crawler_service.db import create_engine, make_session_factory
 from url_crawler_service.models import PageRow
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository
@@ -322,6 +322,26 @@ async def test_run_forever_returns_when_the_stop_event_is_set(repo: CrawlReposit
     stop.set()
 
     await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_run_forever_keeps_polling_while_the_database_is_unreachable() -> None:
+    engine = create_engine("postgresql+asyncpg://crawler:crawler@localhost:1/crawler")
+    worker = Worker(
+        CrawlRepository(make_session_factory(engine)),
+        build_settings(worker_poll_seconds=0.05),
+        worker_id=WORKER_ID,
+    )
+    stop = asyncio.Event()
+
+    task = asyncio.create_task(worker.run_forever(stop))
+    await asyncio.sleep(0.3)
+    assert not task.done()
+
+    stop.set()
+    try:
+        await asyncio.wait_for(task, timeout=5.0)
+    finally:
+        await engine.dispose()
 
 
 async def test_run_forever_keeps_polling_after_a_database_error(
