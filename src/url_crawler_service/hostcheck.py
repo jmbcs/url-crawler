@@ -60,4 +60,6 @@ def _is_private(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         or address.is_multicast
         or address.is_reserved
         or address.is_unspecified
+        # Catches what the flags above miss, such as RFC 6598 carrier-grade NAT space.
+        or not address.is_global
     )
