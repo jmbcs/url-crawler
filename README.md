@@ -31,27 +31,45 @@ Four readings were ambiguous, so the calls are stated up front.
 
 ```mermaid
 flowchart TD
-    CLI["url-crawler<br>CLI: flags, stdout, exit codes"]
-    Api["url-crawler-api<br>FastAPI: queue, read, cancel"]
-    Worker["url-crawler-worker<br>claim, lease, run"]
-    Db[("postgres<br>crawl and page")]
-    subgraph Core["url_crawler core, shared by both entry points"]
-        Crawler["crawler<br>worker pool, scope, fuse"]
-        Frontier["frontier<br>queue plus seen keys"]
-        Fetcher["fetcher<br>streaming GET, retries"]
-        Parser["parser<br>anchors, per-page dedup"]
-        Reporter["reporter<br>text, JSONL or database"]
-        Crawler <--> Frontier
-        Crawler --> Fetcher
-        Crawler --> Parser
-        Crawler --> Reporter
+    CLI["url-crawler<br>terminal"]
+    API["url-crawler-api<br>HTTP"]
+    WRK["url-crawler-worker<br>background"]
+
+    subgraph core["one crawl core, imported by both paths"]
+        CR["crawler<br>worker pool, scope, fuse"]
+        FR["frontier<br>queue, seen keys"]
+        FE["fetcher<br>GET, retries, limits"]
+        PA["parser<br>links"]
+        RE["reporter<br>output"]
+        CR <--> FR
+        CR --> FE
+        CR --> PA
+        CR --> RE
     end
-    CLI --> Crawler
-    Worker --> Crawler
-    Api --> Db
-    Worker --> Db
-    Reporter --> Db
+
+    DB[("Postgres<br>crawl, page")]
+
+    CLI -->|"one crawl, to stdout"| CR
+    WRK -->|"one crawl per job"| CR
+    API -->|"queue, read, cancel"| DB
+    WRK -->|"claim, heartbeat"| DB
+    RE -.->|"service only"| DB
+
+    classDef entry fill:#1f6feb,stroke:#0b4fc4,color:#ffffff
+    classDef brain fill:#8250df,stroke:#5a2ca0,color:#ffffff
+    classDef net fill:#bc4c00,stroke:#8a3800,color:#ffffff
+    classDef out fill:#1a7f37,stroke:#0f5c26,color:#ffffff
+    classDef store fill:#57606a,stroke:#3d444d,color:#ffffff
+    class CLI,API,WRK entry
+    class CR,FR,PA brain
+    class FE net
+    class RE out
+    class DB store
+    style core fill:none,stroke:#8b949e,stroke-dasharray:5 5
 ```
+
+Blue is an entry point, purple is crawl logic, orange talks to the network, green writes output,
+grey stores. The CLI never touches Postgres, and the core never knows which entry point called it.
 </details>
 
 Module tables, the worker loop, the data model and the claim, heartbeat and reaper design:

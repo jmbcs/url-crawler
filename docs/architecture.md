@@ -9,19 +9,40 @@ One process, one event loop, one HTTP client. `cli.py` wires the objects togethe
 owns the crawl; everything else is a small single-purpose module.
 
 ```mermaid
-flowchart TD
-    CLI["cli.py<br>flags, wiring, signals, summary"] --> Crawler["crawler.py<br>seed redirects, worker pool, scope, fuse"]
-    Crawler --> Robots["robots.py<br>robots.txt once, RFC 9309 matching, deny when unreadable"]
-    Crawler <--> Frontier["frontier.py<br>asyncio.Queue plus seen keys"]
-    Crawler --> Fetcher["fetcher.py<br>streaming GET, content-type and size gates"]
-    Fetcher --> Retry["retry.py<br>classify, full-jitter backoff, Retry-After"]
-    Fetcher --> Client["http.py<br>httpx.AsyncClient, follow_redirects=False"]
-    Crawler --> Parser["parser.py<br>a[href] and area[href], base href, per-page dedup"]
-    Parser --> Urls["urls.py<br>normalize, canonical key, HostScope"]
-    Frontier --> Urls
-    Crawler --> Urls
-    Crawler --> Reporter["reporting.py<br>TextReporter or JsonlReporter to stdout"]
+flowchart LR
+    CLI["cli<br>flags, wiring"] --> CR["crawler<br>seed chain, worker pool"]
+
+    subgraph page["each worker repeats this until the frontier drains"]
+        FR["frontier<br>next URL"]
+        FE["fetcher<br>streaming GET"]
+        PA["parser<br>extract links"]
+        FI["urls + robots<br>normalize, scope, allow"]
+        RE["reporting<br>print the page"]
+        FR -->|"URL"| FE
+        FE -->|"HTML"| PA
+        PA -->|"links"| FI
+        FI -->|"in scope, allowed, unseen"| FR
+        FE -->|"page or error"| RE
+    end
+
+    CR --> FR
+    FE --> RT["retry<br>classify, backoff"]
+    FE --> HT["http<br>one AsyncClient"]
+
+    classDef entry fill:#1f6feb,stroke:#0b4fc4,color:#ffffff
+    classDef brain fill:#8250df,stroke:#5a2ca0,color:#ffffff
+    classDef net fill:#bc4c00,stroke:#8a3800,color:#ffffff
+    classDef out fill:#1a7f37,stroke:#0f5c26,color:#ffffff
+    class CLI entry
+    class CR,FR,PA,FI brain
+    class FE,RT,HT net
+    class RE out
+    style page fill:none,stroke:#8b949e,stroke-dasharray:5 5
 ```
+
+The loop is the whole crawler: a URL becomes a page, a page becomes links, and the links that pass
+scope, robots and the seen set become more URLs. It ends when the queue drains, with no sentinel
+value and no timeout.
 
 ## Core modules
 
@@ -61,13 +82,25 @@ runs it, and heartbeats its lease. Nothing coordinates the workers, so N workers
 
 ```mermaid
 flowchart LR
-    Client["client<br>curl, or any HTTP consumer"] --> Api["url-crawler-api<br>FastAPI: validate, read, cancel"]
-    Api --> Db[("postgres<br>crawl and page")]
-    Worker["url-crawler-worker<br>claim, heartbeat, reap"] --> Db
-    Worker --> Core["url_crawler.Crawler<br>the same crawl the CLI runs"]
-    Core --> Reporter["reporter.py<br>DbReporter, batched inserts"]
-    Reporter --> Db
+    C["client<br>curl, or anything"] -->|"POST, GET, DELETE"| API["url-crawler-api<br>validate, read, cancel"]
+    API -->|"rows only, never crawls"| DB[("Postgres<br>crawl, page")]
+    WRK["url-crawler-worker<br>claim, heartbeat, reap"] -->|"SKIP LOCKED claim"| DB
+    WRK --> CORE["url_crawler.Crawler<br>the same crawl the CLI runs"]
+    CORE --> DR["DbReporter<br>batched inserts"]
+    DR -->|"pages, lease fenced"| DB
+
+    classDef entry fill:#1f6feb,stroke:#0b4fc4,color:#ffffff
+    classDef brain fill:#8250df,stroke:#5a2ca0,color:#ffffff
+    classDef out fill:#1a7f37,stroke:#0f5c26,color:#ffffff
+    classDef store fill:#57606a,stroke:#3d444d,color:#ffffff
+    class C,API,WRK entry
+    class CORE brain
+    class DR out
+    class DB store
 ```
+
+Postgres is the only thing the API and the worker share. Nothing else connects them, which is why
+adding a worker is just another process.
 
 ### The seed host guard
 
