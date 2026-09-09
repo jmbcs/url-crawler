@@ -276,6 +276,31 @@ async def test_run_job_fails_when_the_pages_cannot_be_written(
     assert stored.error.startswith("OperationalError")
 
 
+async def test_run_job_appends_the_flush_error_to_a_cancelled_crawl(
+    repo: CrawlRepository, engine: AsyncEngine
+) -> None:
+    site = FakeSite.generated(SLOW_SITE_PAGES)
+    unwritable = UnwritableRepository(make_session_factory(engine))
+    crawl_id, claimed = await claim_one(unwritable, f"http://{site.host}/")
+    worker = Worker(
+        unwritable,
+        build_settings(heartbeat_seconds=0.1),
+        worker_id=WORKER_ID,
+        client_factory=slow_client_factory(site),
+    )
+
+    job = asyncio.create_task(worker.run_job(claimed))
+    await wait_for_heartbeat(repo, crawl_id)
+    assert await repo.request_cancel(crawl_id) is CrawlState.RUNNING
+    state = await asyncio.wait_for(job, timeout=10.0)
+
+    assert state is CrawlState.ABORTED
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.error is not None
+    assert stored.error.startswith(f"{CANCELLED_ERROR}; OperationalError")
+
+
 async def test_run_job_fails_a_crawl_whose_stored_config_is_unusable(
     repo: CrawlRepository,
 ) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
@@ -9,6 +10,8 @@ from datetime import UTC, datetime
 from url_crawler.models import CrawlStats, PageResult
 from url_crawler_service.models import PageRow, page_row
 from url_crawler_service.repository import CrawlRepository
+
+log = logging.getLogger(__name__)
 
 
 class DbReporter:
@@ -58,10 +61,13 @@ class DbReporter:
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._full.wait(), self._flush_seconds)
             self._full.clear()
-            await self._flush()
+            try:
+                await self._flush()
+            except Exception:
+                log.exception("crawl %s: a page batch failed, retrying it", self._crawl_id)
 
     async def close(self) -> None:
-        """Stop run() and write whatever is still buffered."""
+        """Stop run() and make the last attempt at whatever is still buffered."""
         self._closing = True
         self._full.set()
         await self._flush()

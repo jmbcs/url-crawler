@@ -125,8 +125,11 @@ class Worker:
         finally:
             await client.aclose()
 
-        if flush_error is not None and state is CrawlState.FINISHED:
-            state, error = CrawlState.FAILED, flush_error
+        if flush_error is not None:
+            if state is CrawlState.FINISHED:
+                state, error = CrawlState.FAILED, flush_error
+            elif state is CrawlState.ABORTED:
+                error = f"{error}; {flush_error}"
         snapshot = stats_snapshot(stats, time.monotonic() - started)
         return await self._record(crawl, state, error, snapshot)
 
@@ -168,19 +171,19 @@ class Worker:
     async def _drain_pages(
         self, crawl: Crawl, reporter: DbReporter, flush_task: asyncio.Task[None]
     ) -> str | None:
-        """Write the buffered pages; a crawl whose lease is gone drops them instead."""
+        """Make the closing flush decide: the flusher retried every earlier failure."""
         if self._interrupt is _Interrupt.LEASE_LOST:
             reporter.discard()
+        error: str | None = None
         try:
             async with asyncio.timeout(FLUSH_TIMEOUT_SECONDS):
                 await reporter.close()
-                await flush_task
         except Exception as exc:
-            flush_task.cancel()
-            await asyncio.gather(flush_task, return_exceptions=True)
             log.exception("crawl %s could not write all of its pages", crawl.id)
-            return f"{type(exc).__name__}: {exc}"
-        return None
+            error = f"{type(exc).__name__}: {exc}"
+        flush_task.cancel()
+        await asyncio.gather(flush_task, return_exceptions=True)
+        return error
 
     async def _record(
         self, crawl: Crawl, state: CrawlState, error: str | None, stats: dict[str, object]

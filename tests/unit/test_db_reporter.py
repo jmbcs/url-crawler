@@ -63,6 +63,13 @@ class FailingRepository(FakeRepository):
         await super().insert_pages(crawl_id, rows)
 
 
+class UnwritableRepository(FakeRepository):
+    """Rejects every insert, the way a database that stays down would."""
+
+    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+        raise RuntimeError("insert rejected")
+
+
 def build_reporter(
     repo: FakeRepository, *, batch_size: int = 100, flush_seconds: float = NEVER
 ) -> DbReporter:
@@ -79,10 +86,10 @@ def page_result(index: int) -> PageResult:
 
 
 @asynccontextmanager
-async def flushing(reporter: DbReporter) -> AsyncIterator[None]:
+async def flushing(reporter: DbReporter) -> AsyncIterator[asyncio.Task[None]]:
     task = asyncio.create_task(reporter.run())
     try:
-        yield
+        yield task
     finally:
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -204,19 +211,33 @@ async def test_closing_while_an_insert_is_in_flight_writes_every_page_once() -> 
     assert reporter.pages_written == 5
 
 
-async def test_a_failed_insert_surfaces_and_keeps_its_rows() -> None:
+async def test_a_failed_insert_is_retried_with_its_rows_on_the_next_flush() -> None:
     repo = FailingRepository()
-    reporter = build_reporter(repo, batch_size=2)
+    reporter = build_reporter(repo, batch_size=2, flush_seconds=0.01)
 
-    task = asyncio.create_task(reporter.run())
-    reporter.page(page_result(0))
-    reporter.page(page_result(1))
-    with pytest.raises(RuntimeError):
-        await asyncio.wait_for(task, FLUSH_TIMEOUT_SECONDS)
-    await reporter.close()
+    async with flushing(reporter):
+        for index in range(4):
+            reporter.page(page_result(index))
+        await wait_for_flush(repo)
+        await reporter.close()
 
-    assert [row.seq for row in repo.rows] == [1, 2]
-    assert reporter.pages_written == 2
+    assert [row.seq for row in repo.rows] == [1, 2, 3, 4]
+    assert reporter.pages_written == 4
+
+
+async def test_the_flusher_outlives_failing_inserts_and_close_reports_the_last_one() -> None:
+    repo = UnwritableRepository()
+    reporter = build_reporter(repo, batch_size=1, flush_seconds=0.01)
+
+    async with flushing(reporter) as task:
+        reporter.page(page_result(0))
+        await asyncio.sleep(0.05)
+
+        assert not task.done()
+        with pytest.raises(RuntimeError):
+            await reporter.close()
+
+    assert reporter.pages_written == 0
 
 
 async def test_discard_drops_the_pages_of_a_crawl_we_no_longer_own() -> None:
