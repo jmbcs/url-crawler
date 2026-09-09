@@ -11,7 +11,7 @@ import pytest
 from url_crawler.models import CrawlStats, PageResult
 from url_crawler_service.models import PageRow
 from url_crawler_service.reporter import DbReporter
-from url_crawler_service.repository import CrawlRepository
+from url_crawler_service.repository import CrawlRepository, LeaseLost
 
 CRAWL_ID = uuid.uuid4()
 WORKER_ID = "worker-under-test"
@@ -78,6 +78,15 @@ class UnwritableRepository(FakeRepository):
         self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
     ) -> None:
         raise RuntimeError("insert rejected")
+
+
+class StolenRepository(FakeRepository):
+    """Refuses the pages of a crawl another worker now owns."""
+
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
+        raise LeaseLost("another worker owns this crawl")
 
 
 def build_reporter(
@@ -247,6 +256,20 @@ async def test_the_flusher_outlives_failing_inserts_and_close_reports_the_last_o
         assert not task.done()
         with pytest.raises(RuntimeError):
             await reporter.close()
+
+    assert reporter.pages_written == 0
+
+
+async def test_a_lost_lease_stops_the_flusher_instead_of_retrying() -> None:
+    repo = StolenRepository()
+    reporter = build_reporter(repo, batch_size=1, flush_seconds=0.01)
+
+    task = asyncio.create_task(reporter.run())
+    reporter.page(page_result(0))
+    with pytest.raises(LeaseLost):
+        await asyncio.wait_for(task, FLUSH_TIMEOUT_SECONDS)
+    with pytest.raises(LeaseLost):
+        await reporter.close()
 
     assert reporter.pages_written == 0
 

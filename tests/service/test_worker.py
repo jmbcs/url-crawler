@@ -258,6 +258,28 @@ async def test_cancelling_run_job_leaves_no_crawl_task_behind(repo: CrawlReposit
     assert [task for task in asyncio.all_tasks() if task is not asyncio.current_task()] == []
 
 
+async def test_run_job_writes_nothing_when_the_closing_flush_finds_the_lease_gone(
+    repo: CrawlRepository, engine: AsyncEngine, fake_site: FakeSite
+) -> None:
+    crawl_id, claimed = await claim_one(repo, f"http://{fake_site.host}/")
+    worker = Worker(
+        repo,
+        build_settings(heartbeat_seconds=NEVER, page_batch_size=10_000, page_flush_seconds=NEVER),
+        worker_id=WORKER_ID,
+        client_factory=client_factory(fake_site),
+    )
+    await steal_lease(engine, crawl_id)
+
+    await worker.run_job(claimed)
+
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.RUNNING
+    assert stored.worker_id == "another-worker"
+    assert stored.finished_at is None
+    assert await repo.list_pages(crawl_id, limit=1) == []
+
+
 async def test_run_job_fails_when_the_seed_is_unreachable(repo: CrawlRepository) -> None:
     crawl_id, claimed = await claim_one(repo, "http://site.test/")
     worker = Worker(
