@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Any
 
 import httpx
+import pytest
 from sqlalchemy import update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -239,6 +240,22 @@ async def test_run_job_gives_up_quietly_when_another_worker_takes_the_lease(
     assert stored.worker_id == "another-worker"
     assert stored.finished_at is None
     assert await repo.list_pages(crawl_id, limit=1) == []
+
+
+async def test_cancelling_run_job_leaves_no_crawl_task_behind(repo: CrawlRepository) -> None:
+    site = FakeSite.generated(SLOW_SITE_PAGES)
+    _, claimed = await claim_one(repo, f"http://{site.host}/")
+    worker = Worker(
+        repo, build_settings(), worker_id=WORKER_ID, client_factory=slow_client_factory(site)
+    )
+
+    job = asyncio.create_task(worker.run_job(claimed))
+    await asyncio.sleep(0.2)
+    job.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await job
+
+    assert [task for task in asyncio.all_tasks() if task is not asyncio.current_task()] == []
 
 
 async def test_run_job_fails_when_the_seed_is_unreachable(repo: CrawlRepository) -> None:

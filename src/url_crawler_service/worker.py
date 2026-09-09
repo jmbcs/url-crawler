@@ -148,9 +148,12 @@ class Worker:
             outcome = await crawl_task
         except asyncio.CancelledError:
             if self._interrupt is None:
+                crawl_task.cancel()
+                await asyncio.gather(crawl_task, return_exceptions=True)
                 raise
             log.warning("crawl %s interrupted: %s", crawl.id, self._interrupt.value)
-            return CrawlState.ABORTED, CANCELLED_ERROR
+            cancelled = self._interrupt is _Interrupt.CANCEL_REQUESTED
+            return CrawlState.ABORTED, CANCELLED_ERROR if cancelled else None
         except SeedError as exc:
             log.warning("crawl %s never started: %s", crawl.id, exc)
             return CrawlState.FAILED, str(exc)
