@@ -13,24 +13,9 @@ uv run url-crawler example.com --format jsonl > out.jsonl   # scheme defaults to
 uv run url-crawler https://example.com -v --max-pages 200   # progress logs and a page cap
 ```
 
-With Docker:
-
-```bash
-docker build --target cli -t url-crawler .
-docker run --rm url-crawler https://example.com
-```
-
-Without uv, in any virtual environment:
-
-```bash
-pip install .
-url-crawler https://example.com
-```
-
-`python -m url_crawler <url>` works the same as the `url-crawler` script.
-
-On Windows the CLI runs without asyncio signal handlers and falls back to `KeyboardInterrupt` for
-Ctrl-C, which reaches the same exit code 130.
+- **Docker**: `docker build --target cli -t url-crawler .` then `docker run --rm url-crawler https://example.com`.
+- **Without uv**: `pip install .` then `url-crawler https://example.com`, or `python -m url_crawler <url>`.
+- **Windows**: no asyncio signal handlers, `KeyboardInterrupt` handles Ctrl-C, same exit code 130.
 
 ## Flags
 
@@ -48,9 +33,8 @@ Ctrl-C, which reaches the same exit code 130.
 | `-v`, `-vv` | quiet | `-v` logs at INFO, `-vv` at DEBUG (including every link printed but not followed). |
 | `--version` | | Print the version and exit. |
 
-The CLI reads no environment variables and no config file. Flags are its whole configuration
-surface, which keeps a run reproducible from its command line. The service is configured by
-environment variables instead; see [service.md](service.md).
+No env vars, no config file: flags are the whole configuration surface. The service is configured
+differently; see [service.md](service.md).
 
 ## Exit codes
 
@@ -65,11 +49,8 @@ environment variables instead; see [service.md](service.md).
 
 ## Text output
 
-Trimmed from a real run against the fake site the test suite uses, which packs every hazard into 20
-pages. The site answers on a loopback port but writes its absolute links against its nominal host
-`site.test`, so `http://sub.site.test/x` is the subdomain case below and `http://external.test/x`
-the foreign-domain one. Page URLs sit at column zero, their links are indented two spaces, and a
-blank line closes each page.
+A real run against the 20-page fake site the test suite uses, packing every hazard. Page URLs sit
+at column zero, links indented two spaces, and a blank line closes each page.
 
 ```
 $ uv run url-crawler http://127.0.0.1:39735 --concurrency 1
@@ -94,18 +75,12 @@ http://127.0.0.1:39735/leaf
 
 ```
 
-Six pages of the twenty are shown, and the seed's link list is cut from seventeen entries to five.
-Read them from the top: the seed prints an external link and a subdomain link that are never
-requested, and a robots-blocked path that is printed but not followed. `/missing` is reported with
-its status rather than dropped. `/redirect` is a page whose one link is its target.
-`/off-site-redirect` prints a link to another host and stops there. `/file.pdf` is rejected on its
-content type, before its body is read. `/leaf` is a valid page with no links, not an error.
-
-Anchors that are not http(s) never appear. A `mailto:`, `tel:`, `javascript:` or `data:` href is
-dropped by normalization, so it is neither printed nor followed. The brief asks for every URL found
-on a page, and this is the fourth place that phrase had to be read narrowly; the other three are at
-the top of the [README](../README.md). Anything carrying a control byte is dropped the same way, so
-a page cannot write escape sequences into your terminal through the crawler's output.
+- External and subdomain links (`external.test`, `sub.site.test`) print but are never fetched; a
+  robots-blocked path prints but is not followed.
+- `/missing` keeps its status, `/redirect` and `/off-site-redirect` show their target, `/file.pdf`
+  is rejected on content type before its body loads, and `/leaf` has no links but is not an error.
+- Non-http(s) anchors (`mailto:`, `tel:`, `javascript:`, `data:`) and control bytes never appear,
+  dropped by normalization.
 
 The summary goes to stderr, so it never pollutes a pipe:
 
@@ -126,11 +101,10 @@ Crawled 20 pages (17 ok, 3 failed) and found 26 links in 0.9s (22.1 pages/s); 1 
 
 ## Banner and progress line
 
-Two things print to stderr when it is a terminal, so a slow seed does not look like a hang: a
-three-line start banner before the crawl, and a one-line progress counter that redraws in place
-about three times a second. The banner also prints under `-v` in a pipe, because a log-level run
-asked for context; the progress line never does, so a redirect or a CI log stays free of `\r`.
-`--quiet` turns both off. Stdout carries results and nothing else in every case.
+- Two things print to stderr in a terminal: a three-line start banner, and a one-line progress
+  counter redrawing in place about three times a second. `--quiet` turns both off.
+- `-v` also prints the banner in a pipe, for context; the progress line never does, so a redirect or
+  a CI log stays free of `\r`. Stdout carries only page results, in every case.
 
 ```
 url-crawler 0.2.0: crawling https://example.com with 10 workers (robots.txt on, text output)
