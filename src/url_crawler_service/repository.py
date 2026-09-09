@@ -17,7 +17,7 @@ CANCELLED_ERROR = "cancelled by request"
 CANCELLED_BEFORE_START_ERROR = "cancelled before start"
 
 
-class LeaseLost(Exception):  # noqa: N818
+class LeaseLostError(Exception):
     """Raised when a write targets a crawl this worker no longer owns."""
 
 
@@ -222,7 +222,7 @@ class CrawlRepository:
         ]
         async with self._sessions() as session, session.begin():
             if (await session.execute(owned)).first() is None:
-                raise LeaseLost(f"crawl {crawl_id} is not running under {worker_id}")
+                raise LeaseLostError(f"crawl {crawl_id} is not running under {worker_id}")
             await session.execute(insert(Page), values)
 
     async def list_pages(

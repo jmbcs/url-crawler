@@ -23,7 +23,7 @@ from url_crawler.robots import load_robots
 from url_crawler_service.db import create_engine, make_session_factory
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.reporter import DbReporter
-from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLost
+from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLostError
 from url_crawler_service.settings import Settings, SettingsError
 
 log = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ class Worker:
         try:
             async with asyncio.timeout(FLUSH_TIMEOUT_SECONDS):
                 await reporter.close()
-        except LeaseLost:
+        except LeaseLostError:
             log.warning("crawl %s: another worker owns it, dropping its pages", crawl.id)
             self._interrupt = _Interrupt.LEASE_LOST
         except Exception as exc:

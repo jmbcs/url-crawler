@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from url_crawler_service.models import PageRow
 from url_crawler_service.orm import Crawl, CrawlState
-from url_crawler_service.repository import CrawlRepository, LeaseLost
+from url_crawler_service.repository import CrawlRepository, LeaseLostError
 
 CONFIG: dict[str, Any] = {
     "concurrency": 4,
@@ -403,7 +403,7 @@ async def test_insert_pages_refuses_a_worker_that_lost_the_lease(
     await repo.reap(lease_seconds=30, max_attempts=3)
     assert await repo.claim("worker-2") is not None
 
-    with pytest.raises(LeaseLost):
+    with pytest.raises(LeaseLostError):
         await repo.insert_pages(crawl.id, "worker-1", [page(1)])
 
     assert await repo.list_pages(crawl.id) == []

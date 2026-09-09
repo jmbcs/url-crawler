@@ -11,7 +11,7 @@ import pytest
 from url_crawler.models import CrawlStats, PageResult
 from url_crawler_service.models import PageRow
 from url_crawler_service.reporter import DbReporter
-from url_crawler_service.repository import CrawlRepository, LeaseLost
+from url_crawler_service.repository import CrawlRepository, LeaseLostError
 
 CRAWL_ID = uuid.uuid4()
 WORKER_ID = "worker-under-test"
@@ -86,7 +86,7 @@ class StolenRepository(FakeRepository):
     async def insert_pages(
         self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
     ) -> None:
-        raise LeaseLost("another worker owns this crawl")
+        raise LeaseLostError("another worker owns this crawl")
 
 
 def build_reporter(
@@ -266,9 +266,9 @@ async def test_a_lost_lease_stops_the_flusher_instead_of_retrying() -> None:
 
     task = asyncio.create_task(reporter.run())
     reporter.page(page_result(0))
-    with pytest.raises(LeaseLost):
+    with pytest.raises(LeaseLostError):
         await asyncio.wait_for(task, FLUSH_TIMEOUT_SECONDS)
-    with pytest.raises(LeaseLost):
+    with pytest.raises(LeaseLostError):
         await reporter.close()
 
     assert reporter.pages_written == 0

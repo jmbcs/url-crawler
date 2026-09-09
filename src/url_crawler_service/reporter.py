@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from url_crawler.models import CrawlStats, PageResult
 from url_crawler_service.models import PageRow, page_row
-from url_crawler_service.repository import CrawlRepository, LeaseLost
+from url_crawler_service.repository import CrawlRepository, LeaseLostError
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class DbReporter:
             self._full.clear()
             try:
                 await self._flush()
-            except LeaseLost:
+            except LeaseLostError:
                 raise
             except Exception:
                 log.exception("crawl %s: a page batch failed, retrying it", self._crawl_id)
