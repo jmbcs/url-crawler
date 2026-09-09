@@ -1,6 +1,6 @@
 [project]
 name = "url-crawler"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Concurrent same-domain web crawler that prints every page and the links found on it"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -28,6 +28,9 @@ url-crawler-worker = "url_crawler_service.worker:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/url_crawler/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/url_crawler", "src/url_crawler_service"]
