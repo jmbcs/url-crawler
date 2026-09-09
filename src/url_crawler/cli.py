@@ -20,7 +20,7 @@ from url_crawler.models import CrawlStats
 from url_crawler.progress import ProgressLine, format_banner
 from url_crawler.reporting import JsonlReporter, Reporter, TextReporter
 from url_crawler.robots import load_robots
-from url_crawler.urls import ALLOWED_SCHEMES
+from url_crawler.urls import prepare_seed
 
 log = logging.getLogger("url_crawler.cli")
 
@@ -32,16 +32,6 @@ EXIT_INTERRUPTED = 130
 LOG_LEVELS = (logging.WARNING, logging.INFO, logging.DEBUG)
 CANCEL_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 DEFAULTS = CrawlConfig()
-
-
-def prepare_seed(url: str) -> str:
-    """Default a missing scheme to https and reject anything but http(s)."""
-    if "://" not in url:
-        return f"https://{url}"
-    scheme = url.split("://", 1)[0].lower()
-    if scheme not in ALLOWED_SCHEMES:
-        raise ValueError(f"unsupported URL scheme {scheme!r}: use http:// or https://")
-    return url
 
 
 def main(argv: Sequence[str] | None = None) -> int:

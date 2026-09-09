@@ -35,6 +35,16 @@ def normalize(url: str) -> str | None:
     return normalized if len(normalized) <= MAX_URL_LENGTH else None
 
 
+def prepare_seed(url: str) -> str:
+    """Default a missing scheme to https and reject anything but http(s)."""
+    if "://" not in url:
+        return f"https://{url}"
+    scheme = url.split("://", 1)[0].lower()
+    if scheme not in ALLOWED_SCHEMES:
+        raise ValueError(f"unsupported URL scheme {scheme!r}: use http:// or https://")
+    return url
+
+
 def resolve_href(href: str, base_url: str) -> str | None:
     """Strip whitespace, join href against base_url, normalize."""
     return normalize(urljoin(base_url, href.strip()))

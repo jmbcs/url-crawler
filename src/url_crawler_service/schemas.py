@@ -6,10 +6,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from url_crawler.cli import DEFAULTS, prepare_seed
-from url_crawler.urls import normalize
+from url_crawler.config import CrawlConfig
+from url_crawler.urls import normalize, prepare_seed
 from url_crawler_service.orm import Crawl, CrawlState, Page
 
+DEFAULTS = CrawlConfig()
 MAX_CONCURRENCY = 50
 MAX_TIMEOUT_SECONDS = 120.0
 MAX_SEED_IN_ERROR = 200

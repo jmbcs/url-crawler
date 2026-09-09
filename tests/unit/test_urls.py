@@ -1,6 +1,12 @@
 import pytest
 
-from url_crawler.urls import MAX_URL_LENGTH, canonical_key, normalize, resolve_href
+from url_crawler.urls import (
+    MAX_URL_LENGTH,
+    canonical_key,
+    normalize,
+    prepare_seed,
+    resolve_href,
+)
 
 
 @pytest.mark.parametrize(
@@ -158,3 +164,23 @@ def test_canonical_key_matches_for_reordered_query() -> None:
 )
 def test_canonical_key_distinguishes(left: str, right: str) -> None:
     assert canonical_key(left) != canonical_key(right)
+
+
+@pytest.mark.parametrize(
+    ("typed", "expected"),
+    [
+        ("example.com", "https://example.com"),
+        ("example.com/docs/", "https://example.com/docs/"),
+        ("http://example.com", "http://example.com"),
+        ("https://example.com/a?b=1", "https://example.com/a?b=1"),
+        ("HTTPS://example.com", "HTTPS://example.com"),
+    ],
+)
+def test_prepare_seed(typed: str, expected: str) -> None:
+    assert prepare_seed(typed) == expected
+
+
+@pytest.mark.parametrize("typed", ["ftp://example.com", "file:///etc/passwd"])
+def test_prepare_seed_rejects_other_schemes(typed: str) -> None:
+    with pytest.raises(ValueError, match="unsupported URL scheme"):
+        prepare_seed(typed)

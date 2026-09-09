@@ -5,13 +5,7 @@ import argparse
 import pytest
 
 from url_crawler import __version__
-from url_crawler.cli import (
-    _banner_enabled,
-    _progress_enabled,
-    build_parser,
-    main,
-    prepare_seed,
-)
+from url_crawler.cli import _banner_enabled, _progress_enabled, build_parser, main
 
 
 def parse(argv: list[str]) -> argparse.Namespace:
@@ -55,26 +49,6 @@ def test_flags_are_parsed() -> None:
     assert args.ignore_robots is True
     assert args.quiet is True
     assert args.verbose == 1
-
-
-@pytest.mark.parametrize(
-    ("typed", "expected"),
-    [
-        ("example.com", "https://example.com"),
-        ("example.com/docs/", "https://example.com/docs/"),
-        ("http://example.com", "http://example.com"),
-        ("https://example.com/a?b=1", "https://example.com/a?b=1"),
-        ("HTTPS://example.com", "HTTPS://example.com"),
-    ],
-)
-def test_prepare_seed(typed: str, expected: str) -> None:
-    assert prepare_seed(typed) == expected
-
-
-@pytest.mark.parametrize("typed", ["ftp://example.com", "file:///etc/passwd"])
-def test_prepare_seed_rejects_other_schemes(typed: str) -> None:
-    with pytest.raises(ValueError, match="unsupported URL scheme"):
-        prepare_seed(typed)
 
 
 @pytest.mark.parametrize(
