@@ -128,16 +128,24 @@ def _generated_pages(count: int, links_per_page: int) -> dict[str, Page]:
 class FakeSite:
     """Routes paths to canned responses; /flaky fails once before succeeding."""
 
-    def __init__(self, host: str = "site.test") -> None:
+    def __init__(self, host: str = "site.test", *, not_found: Page = _NOT_FOUND) -> None:
         self.host = host
         self.requested: list[str] = []
         self.pages = _hazard_pages(host)
         self._flaky_requests = 0
+        self._not_found = not_found
 
     @classmethod
     def generated(cls, pages: int, links_per_page: int = 5, host: str = "site.test") -> FakeSite:
         site = cls(host)
         site.pages = _generated_pages(pages, links_per_page)
+        return site
+
+    @classmethod
+    def failing(cls, host: str = "site.test", status: int = 503, children: int = 30) -> FakeSite:
+        """Home page links to `children` distinct paths that all answer with `status`."""
+        site = cls(host, not_found=Page(status=status))
+        site.pages = {"/": _links(*(f"/e/{index}" for index in range(children)))}
         return site
 
     def respond(self, path: str, host: str | None = None) -> Page:
@@ -147,4 +155,4 @@ class FakeSite:
             self._flaky_requests += 1
             if self._flaky_requests == 1:
                 return Page(status=500, body=b"<html><body>server error</body></html>")
-        return self.pages.get(path, _NOT_FOUND)
+        return self.pages.get(path, self._not_found)

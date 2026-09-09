@@ -29,8 +29,8 @@ SUMMARY_PATTERN = re.compile(
 
 
 @contextlib.contextmanager
-def running_site(delay_ms: int = 0) -> Iterator[str]:
-    server = serve(FakeSite(), delay_ms=delay_ms)
+def running_site(delay_ms: int = 0, site: FakeSite | None = None) -> Iterator[str]:
+    server = serve(site if site is not None else FakeSite(), delay_ms=delay_ms)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -194,6 +194,20 @@ def test_unreachable_seed_exits_3() -> None:
     assert time.monotonic() - started < 20
     assert "Could not fetch seed" in result.stderr
     assert "Crawled 0 pages" in result.stderr
+
+
+def test_failure_fuse_exits_4_and_names_the_reason_on_stderr() -> None:
+    site = FakeSite.failing(status=503, children=30)
+    with running_site(site=site) as site_url:
+        result = subprocess.run(
+            [*CLI, site_url, "--ignore-robots", "--concurrency", "5"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    assert result.returncode == 4
+    assert "consecutive failures" in result.stderr
 
 
 def test_sigint_stops_the_crawl_after_a_complete_page() -> None:
