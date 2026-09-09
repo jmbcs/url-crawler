@@ -61,8 +61,8 @@ class CrawlRepository:
             if row is None:
                 return None
             crawl_id, attempts = row.id, row.attempts
-            if attempts > 0:
-                await session.execute(delete(Page).where(Page.crawl_id == crawl_id))
+            # Seqs restart at 1 on every claim, so a claim always starts from an empty page set.
+            await session.execute(delete(Page).where(Page.crawl_id == crawl_id))
             claimed = (
                 update(Crawl)
                 .where(Crawl.id == crawl_id)
@@ -123,7 +123,13 @@ class CrawlRepository:
                 Crawl.worker_id == worker_id,
                 Crawl.cancel_requested.is_(False),
             )
-            .values(state=CrawlState.QUEUED.value, worker_id=None, heartbeat_at=None)
+            .values(
+                state=CrawlState.QUEUED.value,
+                worker_id=None,
+                heartbeat_at=None,
+                # A clean handoff is not an attempt, so a rolling deploy re-runs rather than fails.
+                attempts=func.greatest(Crawl.attempts - 1, 0),
+            )
             .returning(Crawl.id)
         )
         async with self._sessions() as session, session.begin():

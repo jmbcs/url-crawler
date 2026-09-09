@@ -141,7 +141,7 @@ async def test_claim_deletes_pages_from_a_previous_attempt(repo: CrawlRepository
     claimed = await repo.claim("worker-2")
 
     assert claimed is not None
-    assert claimed.attempts == 2
+    assert claimed.attempts == 1
     assert await repo.list_pages(crawl.id) == []
 
 
@@ -201,7 +201,7 @@ async def test_finish_rejects_a_non_terminal_state(repo: CrawlRepository) -> Non
         await repo.finish(crawl.id, "worker-1", CrawlState.RUNNING, {})
 
 
-async def test_release_requeues_the_crawl_without_touching_attempts(
+async def test_release_requeues_the_crawl_and_gives_back_its_attempt(
     repo: CrawlRepository,
 ) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
@@ -214,7 +214,24 @@ async def test_release_requeues_the_crawl_without_touching_attempts(
     assert stored.state == CrawlState.QUEUED
     assert stored.worker_id is None
     assert stored.heartbeat_at is None
-    assert stored.attempts == 1
+    assert stored.attempts == 0
+
+
+async def test_repeated_graceful_handoffs_never_reach_max_attempts(
+    repo: CrawlRepository, engine: AsyncEngine
+) -> None:
+    crawl = await repo.create("https://a.test/", CONFIG)
+    for worker in ("worker-1", "worker-2", "worker-3", "worker-4"):
+        assert await repo.claim(worker) is not None
+        assert await repo.release(crawl.id, worker) is True
+
+    assert await repo.claim("worker-5") is not None
+    await age_heartbeat(engine, crawl.id, 120)
+    assert await repo.reap(lease_seconds=30, max_attempts=3) == 1
+
+    stored = await repo.get(crawl.id)
+    assert stored is not None
+    assert stored.state == CrawlState.QUEUED
 
 
 async def test_release_refuses_a_crawl_a_cancel_request_raced(repo: CrawlRepository) -> None:
