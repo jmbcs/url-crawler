@@ -67,6 +67,7 @@ markers = [
 [tool.coverage.run]
 source = ["url_crawler", "url_crawler_service"]
 branch = true
+patch = ["subprocess"]
 
 [dependency-groups]
 dev = [
