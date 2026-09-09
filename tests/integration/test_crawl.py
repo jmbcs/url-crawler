@@ -15,7 +15,7 @@ import pytest
 from tests.conftest import CollectingReporter
 from tests.fakesite.site import EXPECTED_CRAWLED, NEVER_REQUESTED, FakeSite
 from url_crawler.config import CrawlConfig
-from url_crawler.crawler import Crawler, CrawlOutcome, RobotsLoader, SeedError
+from url_crawler.crawler import Crawler, CrawlOutcome, RobotsLoader, SeedError, SeedGuard
 from url_crawler.fetcher import Fetcher
 from url_crawler.models import CrawlStats, FetchErrorKind, PageResult
 from url_crawler.parser import extract_links
@@ -92,6 +92,7 @@ async def run_crawl(
     seed: str = SEED,
     config: CrawlConfig | None = None,
     robots_loader: RobotsLoader = allow_all,
+    seed_guard: SeedGuard | None = None,
     extract: Callable[[bytes, str], list[str]] = extract_links,
     max_attempts: int = 3,
     reporter: CollectingReporter | None = None,
@@ -113,6 +114,7 @@ async def run_crawl(
         config if config is not None else CrawlConfig(),
         stats,
         robots_loader=robots_loader,
+        seed_guard=seed_guard,
         extract=extract,
         sleep=sleeps,
     )
@@ -476,6 +478,50 @@ async def test_seed_redirect_re_anchors_scope_to_the_final_host(
     assert crawl.pages[SEED].links == ("http://www.site.test/",)
     assert "http://site.test/old" in crawl.pages["http://www.site.test/"].links
     assert "scope re-anchored to www.site.test" in caplog.text
+
+
+def redirecting_handler(target: str) -> Handler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == SEED:
+            return httpx.Response(302, headers={"location": target})
+        return httpx.Response(200, content=b"<p>landing</p>", headers=HTML_HEADERS)
+
+    return handler
+
+
+async def test_seed_guard_rejects_the_seed_before_it_is_fetched() -> None:
+    async def guard(url: str) -> str | None:
+        return "host resolves to a private address (127.0.0.1)"
+
+    recorded, requested = recording_handler(redirecting_handler("http://elsewhere.test/"))
+    async with mock_client(recorded) as client:
+        with pytest.raises(SeedError, match="seed rejected: host resolves") as excinfo:
+            await run_crawl(client, config=CrawlConfig(respect_robots=False), seed_guard=guard)
+
+    assert excinfo.value.exit_code == 3
+    assert requested == []
+
+
+async def test_seed_guard_rejects_a_redirect_target_after_one_fetch() -> None:
+    async def guard(url: str) -> str | None:
+        return None if url == SEED else "host resolves to a private address (10.0.0.5)"
+
+    recorded, requested = recording_handler(redirecting_handler("http://elsewhere.test/"))
+    async with mock_client(recorded) as client:
+        with pytest.raises(SeedError, match="seed rejected: host resolves") as excinfo:
+            await run_crawl(client, config=CrawlConfig(respect_robots=False), seed_guard=guard)
+
+    assert excinfo.value.exit_code == 3
+    assert requested == [SEED]
+
+
+async def test_without_a_seed_guard_the_redirect_is_followed() -> None:
+    recorded, requested = recording_handler(redirecting_handler("http://elsewhere.test/"))
+    async with mock_client(recorded) as client:
+        crawl = await run_crawl(client, config=CrawlConfig(respect_robots=False))
+
+    assert requested == [SEED, "http://elsewhere.test/"]
+    assert crawl.stats.pages_total == 2
 
 
 async def test_warns_when_almost_every_page_has_no_links(

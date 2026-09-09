@@ -23,6 +23,7 @@ LINKLESS_WARNING_MIN_PAGES = 50
 LINKLESS_WARNING_RATIO = 0.9
 
 RobotsLoader = Callable[[str], Awaitable[RobotsPolicy]]
+SeedGuard = Callable[[str], Awaitable[str | None]]
 
 
 class SeedError(Exception):
@@ -51,6 +52,7 @@ class Crawler:
         stats: CrawlStats,
         *,
         robots_loader: RobotsLoader,
+        seed_guard: SeedGuard | None = None,
         extract: Callable[[bytes, str], list[str]] = extract_links,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -59,6 +61,7 @@ class Crawler:
         self._config = config
         self._stats = stats
         self._robots_loader = robots_loader
+        self._seed_guard = seed_guard
         self._extract = extract
         self._sleep = sleep
         self._frontier = Frontier()
@@ -103,7 +106,7 @@ class Crawler:
         """Walk the seed's redirect chain, reporting each hop, and return where it landed."""
         url = seed
         self._frontier.mark_seen(url)
-        result = await self._fetcher.fetch(url)
+        result = await self._fetch_seed(url)
         for _ in range(self._config.max_seed_redirects):
             if isinstance(result, FetchError):
                 return url, result
@@ -116,10 +119,18 @@ class Crawler:
             self._reporter.page(PageResult(url, result.status, (target,)))
             self._frontier.mark_seen(target)
             url = target
-            result = await self._fetcher.fetch(url)
+            result = await self._fetch_seed(url)
         if isinstance(result, FetchResult) and self._redirect_target(url, result) is not None:
             raise SeedError("Seed redirected too many times")
         return url, result
+
+    async def _fetch_seed(self, url: str) -> FetchResult | FetchError:
+        """Let the caller veto a seed host, so the service never crawls a private address."""
+        if self._seed_guard is not None:
+            reason = await self._seed_guard(url)
+            if reason is not None:
+                raise SeedError(f"seed rejected: {reason}", 3)
+        return await self._fetcher.fetch(url)
 
     async def _run_workers(self) -> None:
         try:
