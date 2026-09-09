@@ -1,4 +1,4 @@
-.PHONY: install lint format types test cov bench smoke docker check \
+.PHONY: install lint format types test test-matrix cov bench smoke docker check \
 	db-up db-down db-reset migrate migration api worker test-service compose-up compose-down
 
 DB_URL ?= postgresql+asyncpg://crawler:crawler@localhost:55432/crawler
@@ -23,6 +23,10 @@ types:
 
 test:
 	uv run pytest
+
+test-matrix:
+	uv run --python 3.12 pytest -q
+	uv run --python 3.13 pytest -q
 
 cov:
 	uv run pytest --cov --cov-report=term-missing --cov-fail-under=75
