@@ -31,6 +31,7 @@ services:
       context: .
       target: service
     command: ["url-crawler-api"]
+    restart: unless-stopped
     environment: *env
     ports:
       - "8000:8000"
@@ -43,6 +44,7 @@ services:
       context: .
       target: service
     command: ["url-crawler-worker"]
+    restart: unless-stopped
     environment: *env
     depends_on:
       migrate:
