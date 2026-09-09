@@ -293,7 +293,7 @@ unparsable value exits 2 with a message naming the variable.
 
 ```bash
 make db-up          # postgres on :55432 plus the crawler_test database
-make test-service   # 68 tests against it; the suite migrates that database itself
+make test-service   # 69 tests against it; the suite migrates that database itself
 ```
 
 They are marked `postgres` and skip when `URL_CRAWLER_TEST_DATABASE_URL` is unset, so `make test`
@@ -819,7 +819,7 @@ not as a throughput number. The `--ignore-robots` flag is explained in the testi
 ## Testing
 
 Six layers plus the tests that keep the fixtures honest, all deterministic, with no external network
-in the default run. `make test` runs 483 tests; 68 of them need a Postgres and skip without one, and
+in the default run. `make test` runs 485 tests; 69 of them need a Postgres and skip without one, and
 a single network smoke test is deselected unless you ask for it.
 
 ```bash
@@ -844,7 +844,7 @@ make check                                 # lint, types, test
 | HTTP layer, mocked transport | `tests/unit/test_fetcher.py`, `test_robots.py` | `httpx.MockTransport` handlers: 500 then 200 with an asserted call count, 404 with no retry, 429 with `Retry-After`, three timeouts, PDF rejected without reading the body, oversize by header and mid-stream, 3xx returning `Location`, robots.txt failing open on 404, connect error and undecodable body |
 | Integration, in-process | `tests/integration/test_crawl.py` | The crawler against an ASGI fake site through `httpx.ASGITransport`: the exact set of crawled paths, exactly-once fetching, subdomain and external links printed but never requested, redirect chain, redirect cycle, off-host redirect, 404, 500-then-200, `<base href>`, malformed HTML, worker exception isolated, `--max-pages` drain, fuse trip, robots-blocked path, seed re-anchoring |
 | Subprocess, real sockets | `tests/integration/test_cli.py` | The installed CLI against a loopback `ThreadingHTTPServer`: exit codes, stdout purity under `-vv`, JSONL parses and ends with a summary, seed without a scheme, unreachable seed, SIGINT flushing a complete page and exiting 130, closed stdout exiting 0 |
-| Service, real Postgres | `tests/service/` | 68 tests marked `postgres`: `SKIP LOCKED` giving two concurrent claimers different crawls, a claim wiping a previous attempt's pages, heartbeat rejecting a stale worker, the reaper requeueing then failing at `MAX_ATTEMPTS`, release on shutdown, an insert refused after another worker takes the lease, cancel of a queued, a running, a finished and an unknown crawl, keyset pagination over 250 rows, the API surface including SSE, a 503 healthz and the shutdown hook, the committed migration matching the ORM and surviving a downgrade, a worker that keeps polling while the database refuses connections, and a crawl posted over the API then run by a real `Worker` against the fake site |
+| Service, real Postgres | `tests/service/` | 69 tests marked `postgres`: `SKIP LOCKED` giving two concurrent claimers different crawls, a claim wiping a previous attempt's pages, heartbeat rejecting a stale worker, the reaper requeueing then failing at `MAX_ATTEMPTS`, release on shutdown, an insert refused after another worker takes the lease, cancel of a queued, a running, a finished and an unknown crawl, keyset pagination over 250 rows, the API surface including SSE, a 503 healthz and the shutdown hook, the committed migration matching the ORM and surviving a downgrade, a worker that keeps polling while the database refuses connections, and a crawl posted over the API then run by a real `Worker` against the fake site |
 | Smoke, opt-in | `tests/smoke/test_live.py` | One real HTTPS crawl of `crawler-test.com`, capped at 5 pages: exit 0, the seed printed first, no log lines on stdout, the summary on stderr. It passes `--ignore-robots`, because that site's robots.txt carries a `Disallow: //` line which stdlib `robotparser` reads as block-all. Marked `network` and deselected by default |
 
 The fake site in `tests/fakesite/` is shared by the integration layer, the subprocess layer, the
