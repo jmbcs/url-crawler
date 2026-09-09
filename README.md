@@ -59,21 +59,17 @@ Module tables, the worker loop, the data model and the claim, heartbeat and reap
 
 ## The CLI
 
-Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/). Full reference in
-[docs/cli.md](docs/cli.md): the [flag table](docs/cli.md#flags) and the
-[exit codes](docs/cli.md#exit-codes).
+**1. Install.** Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/); `uv sync` installs from the
+committed `uv.lock`, so the versions are the tested ones.
+
+**2. Crawl one site.** Pages stream to stdout as they complete; Ctrl-C keeps what is done.
 
 ```bash
-uv sync                                                     # install, from the committed uv.lock
-uv run url-crawler https://example.com                      # crawl and print to stdout
-uv run url-crawler example.com --format jsonl > out.jsonl   # scheme defaults to https
-docker build --target cli -t url-crawler . && docker run --rm url-crawler https://example.com
+uv run url-crawler https://example.com
 ```
 
-Without uv, `pip install .` gets the CLI and `pip install '.[service]'` adds the crawl service.
-
-Each page prints on its own line with its links indented under it, here against the bundled fake
-site (`uv run python -m tests.fakesite.server --port 8765`):
+**3. Read the output.** Each page sits at column zero with its links indented under it, here against
+the bundled fake site (`uv run python -m tests.fakesite.server --port 8765`):
 
 ```
 $ uv run url-crawler http://127.0.0.1:8765/ --max-pages 4 --concurrency 2
@@ -85,121 +81,124 @@ http://127.0.0.1:8765/
 
 http://127.0.0.1:8765/b
   http://127.0.0.1:8765/a
+
+... 2 more pages, then on stderr:
+Crawled 4 pages (4 ok, 0 failed) and found 21 links in 0.4s (10.1 pages/s); 0 retries, 5 duplicate URLs skipped
 ```
 
-Those two off-host links print and are never requested. Logs and the closing summary go to stderr,
-so a pipe carries results only. `--format jsonl` emits one object per page plus a summary object.
+Off-host links print but are never fetched. Logs and the summary go to stderr, so a pipe is clean.
+
+**4. Turn the knobs.** `--format jsonl` emits one object per page plus a summary object. The
+[flag table](docs/cli.md#flags) and the [exit codes](docs/cli.md#exit-codes) have the rest.
 
 ## The crawl service
 
-Optional, and skippable for a CLI review. Full reference: [docs/service.md](docs/service.md).
+Optional, and skippable for a CLI review. Six steps from nothing to results and back to nothing.
+Full reference: [docs/service.md](docs/service.md).
+
+**1. Start the stack.**
 
 ```bash
-docker compose up --build -d      # postgres, alembic upgrade, api on :8000, one worker
-curl -sS localhost:8000/healthz   # {"status":"ok"}
+docker compose up --build -d
 ```
 
-- **Interactive API docs, nothing to enable:** Swagger UI at `/docs`, ReDoc at `/redoc`, schema at
-  `/openapi.json`. All three answer 200 once the API is up.
-- **Scale with** `docker compose up -d --scale worker=3`; nothing coordinates workers, each claims
-  its own crawl. `docker compose down` stops the stack.
+Builds the image, starts Postgres, runs `alembic upgrade head` to completion, then starts the API on
+`:8000` and one worker polling for queued crawls. The first build takes a few minutes; later ones
+are cached and the stack is up in seconds.
+
+**2. Confirm it is up.**
+
+```bash
+$ curl -sS localhost:8000/healthz
+{"status":"ok"}
+```
+
+The API answered and its `SELECT 1` reached Postgres. Swagger UI is at `/docs`, ReDoc at `/redoc`.
+
+**3. Submit a crawl.**
+
+```bash
+$ curl -sS -D- -X POST localhost:8000/crawls -H 'content-type: application/json' \
+    -d '{"seed": "https://example.com", "max_pages": 5}'
+HTTP/1.1 202 Accepted
+location: /crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337
+
+{"id":"fc7e9a7c-35fa-4f91-ad3e-47f16233c337","seed":"https://example.com/","state":"queued",
+ "config":{"timeout":10.0,"max_bytes":5000000,"max_pages":5,"concurrency":10,"respect_robots":true},
+ "created_at":"2026-09-09T16:22:29.688262Z","started_at":null,"finished_at":null,"attempts":0,
+ "cancel_requested":false,"stats":null,"error":null}
+```
+
+202 means queued, not crawled. The id in the `Location` header is what every later call needs.
+
+**4. Watch it.**
+
+```bash
+$ curl -sS localhost:8000/crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337
+{"id":"fc7e9a7c-35fa-4f91-ad3e-47f16233c337","seed":"https://example.com/","state":"finished",
+ "started_at":"2026-09-09T16:22:30.591844Z","finished_at":"2026-09-09T16:22:30.998959Z",
+ "attempts":1,"cancel_requested":false,"error":null,"config":{"…":"as posted"},
+ "stats":{"retries":0,"pages_ok":1,"redirects":0,"links_found":1,"pages_total":1,
+          "pages_failed":{},"elapsed_seconds":0.268,"duplicates_dropped":0,
+          "pages_without_links":0}}
+```
+
+`state` plus `stats` say whether it finished. A five-page crawl takes under a second, so it is
+usually already done; `GET /crawls/{id}/events` streams this same body every two seconds if not.
+
+**5. Read the results.**
+
+```bash
+$ curl -sS localhost:8000/crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337/pages
+{"items":[{"seq":1,"url":"https://example.com/","status":200,"error":null,
+           "links":["https://iana.org/domains/example"],
+           "fetched_at":"2026-09-09T16:22:30.973348Z"}],"next_after":null}
+```
+
+One object per page, readable while the crawl is still going. `next_after` is the `after=` cursor
+for the next batch, and null once you have read everything written so far.
+
+**6. Stop it.**
+
+```bash
+docker compose down                          # stops the stack
+docker compose up -d --scale worker=3        # or run more workers: nothing coordinates them
+```
 
 | Endpoint | Behaviour |
 | --- | --- |
-| `POST /crawls` | 202 with a `Location` header. The seed takes the CLI's normalization, so `example.com` is stored as `https://example.com/`. A private, unresolvable or non-http(s) seed is 422 `{"detail": {"seed": "localhost is a local hostname"}}`; a bad field is a 422 from pydantic. |
+| `POST /crawls` | 202 with a `Location` header. The seed takes the CLI's normalization, so `example.com` is stored as `https://example.com/`. A private, unresolvable or non-http(s) seed is 422, and so is a bad field. |
 | `GET /crawls` | 200, newest first. `state` filters; `limit` is 1 to 200, default 50. |
-| `GET /crawls/{id}` | 200 with the stats that say whether a crawl finished; 404 `{"detail": "crawl not found"}`. |
-| `GET /crawls/{id}/pages` | 200 keyset page. `after` is the last `seq` you saw, `limit` is 1 to 500, default 100. `next_after` is null when you have read everything written so far, which is not the same as the crawl being over. |
-| `GET /crawls/{id}/events` | 200 `text/event-stream`: one `stats` frame every two seconds carrying the `GET /crawls/{id}` body, then one `end` frame at a terminal state. 404 for an unknown id. |
-| `DELETE /crawls/{id}` | 202. A request, not a kill: `queued` aborts outright, `running` stops at its worker's next heartbeat with partial pages kept, terminal comes back unchanged. 404 for an unknown id. |
-| `GET /healthz` | 200 after a `SELECT 1`; 503 `{"detail": "database unavailable"}` when Postgres is unreachable. |
+| `GET /crawls/{id}` | 200 with the stats that say whether a crawl finished; 404 for an unknown id. |
+| `GET /crawls/{id}/pages` | 200 keyset page. `after` is the last `seq` you saw, `limit` is 1 to 500, default 100. |
+| `GET /crawls/{id}/events` | 200 `text/event-stream`: a `stats` frame every two seconds, then one `end` frame at a terminal state. |
+| `DELETE /crawls/{id}` | 202. A request, not a kill: `queued` aborts outright, `running` stops at its worker's next heartbeat with partial pages kept, terminal comes back unchanged. |
+| `GET /healthz` | 200 after a `SELECT 1`; 503 when Postgres is unreachable. |
 
 <details>
-<summary>Worked examples: captured request and response for every endpoint</summary>
+<summary>Worked examples: the endpoints the walkthrough skips, plus a refused seed</summary>
 
-Real responses, trimmed where marked, from a crawl of the bundled fake site with the seed guard
-relaxed the way `tests/service/test_end_to_end.py` relaxes it, which is why the seeds read
-`http://127.0.0.1:8765/`. A deployed service refuses a seed on a private address.
-
-**`POST /crawls`**
 ```bash
-curl -sS -D- -X POST localhost:8000/crawls -H 'content-type: application/json' \
-  -d '{"seed": "https://example.com", "max_pages": 5}'
-```
-```
-HTTP/1.1 202 Accepted
-location: /crawls/5742636b-aad2-48ae-b13f-09b2b7306f95
-```
-```json
-{"id": "5742636b-aad2-48ae-b13f-09b2b7306f95", "seed": "http://127.0.0.1:8765/", "state": "queued",
- "created_at": "2026-09-09T13:59:27.893104Z", "started_at": null, "finished_at": null,
- "attempts": 0, "cancel_requested": false, "stats": null, "error": null,
- "config": {"timeout": 10.0, "max_bytes": 5000000, "max_pages": 5, "concurrency": 10,
-            "respect_robots": true}}
-```
+$ curl -sS 'localhost:8000/crawls?limit=2&state=finished'
+{"items": [{"id": "fc7e9a7c-35fa-4f91-ad3e-47f16233c337", "seed": "https://example.com/",
+            "state": "finished", "attempts": 1, "…": "the step 4 body, per match"}]}
 
-**`GET /crawls`**
-```bash
-curl -sS 'localhost:8000/crawls?limit=2&state=finished'
-```
-```json
-{"items": [
-  {"id": "5742636b-aad2-48ae-b13f-09b2b7306f95", "seed": "http://127.0.0.1:8765/",
-   "state": "finished", "attempts": 1, "cancel_requested": false, "error": null,
-   "started_at": "2026-09-09T13:59:27.907010Z", "finished_at": "2026-09-09T13:59:28.074764Z",
-   "stats": {"pages_total": 5, "pages_ok": 4, "links_found": 21, "…": "full shape below"},
-   "config": {"…": "as posted"}, "created_at": "2026-09-09T13:59:27.893104Z"}
-]}
-```
-
-**`GET /crawls/{id}`**
-```bash
-curl -sS localhost:8000/crawls/5742636b-aad2-48ae-b13f-09b2b7306f95
-```
-```json
-{"id": "5742636b-aad2-48ae-b13f-09b2b7306f95", "state": "finished", "attempts": 1,
- "stats": {"retries": 0, "pages_ok": 4, "redirects": 0, "links_found": 21, "pages_total": 5,
-           "pages_failed": {"http_status": 1}, "elapsed_seconds": 0.119,
-           "duplicates_dropped": 5, "pages_without_links": 0},
- "…": "seed, config, the three timestamps, cancel_requested and error, as above"}
-```
-
-**`GET /crawls/{id}/pages`**
-```bash
-curl -sS 'localhost:8000/crawls/5742636b-aad2-48ae-b13f-09b2b7306f95/pages?after=3&limit=2'
-```
-```json
-{"items": [
-  {"seq": 4, "url": "http://127.0.0.1:8765/missing", "status": 404, "links": [],
-   "error": {"kind": "http_status", "message": "HTTP 404"},
-   "fetched_at": "2026-09-09T13:59:28.025666Z"},
-  {"seq": 5, "url": "http://127.0.0.1:8765/a", "status": 200, "error": null,
-   "links": ["http://127.0.0.1:8765/b", "http://127.0.0.1:8765/"],
-   "fetched_at": "2026-09-09T13:59:28.061536Z"}
-], "next_after": 5}
-```
-
-**`GET /crawls/{id}/events`**
-```bash
-curl -sSN localhost:8000/crawls/5742636b-aad2-48ae-b13f-09b2b7306f95/events
-```
-```
+$ curl -sSN localhost:8000/crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337/events
 event: stats
-data: {"id":"5742636b-aad2-48ae-b13f-09b2b7306f95","state":"finished","attempts":1, …}
+data: {"id":"fc7e9a7c-35fa-4f91-ad3e-47f16233c337","state":"finished","attempts":1, …}
 
 event: end
 data: {}
+
+$ curl -sS -X DELETE localhost:8000/crawls/9c348a7f-5ad9-468e-af14-c71c75d21e2d
+{"id": "9c348a7f-5ad9-468e-af14-c71c75d21e2d", "state": "aborted"}
+
+$ curl -sS -X POST localhost:8000/crawls -H 'content-type: application/json' \
+    -d '{"seed": "http://localhost:8000"}'
+{"detail": {"seed": "localhost is a local hostname"}}
 ```
 
-**`DELETE /crawls/{id}`**
-```bash
-curl -sS -X DELETE localhost:8000/crawls/78afa4eb-7452-426f-8f87-25a2d5667df1
-```
-```json
-{"id": "78afa4eb-7452-426f-8f87-25a2d5667df1", "state": "aborted"}
-```
-
-**`GET /healthz`** is the `curl` above the table: `{"status": "ok"}`.
+Real captured output, trimmed. The 422 is why these examples use `example.com`, not a local address.
 </details>
 
 ## Noteworthy
@@ -267,7 +266,7 @@ curl -sS -X DELETE localhost:8000/crawls/78afa4eb-7452-426f-8f87-25a2d5667df1
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | Features, core modules, the worker loop, the service, the data model, claim and lease |
 | [docs/design-decisions.md](docs/design-decisions.md) | Every decision in full, with the rejected option and the reversal trigger |
-| [docs/cli.md](docs/cli.md) | Flags, exit codes, text and JSONL output, the banner and the progress line |
+| [docs/cli.md](docs/cli.md) | Flags, exit codes, text and JSONL output, the banner, Docker and pip |
 | [docs/service.md](docs/service.md) | Crawl service: running it, the API, configuration, what it does not do yet |
 | [docs/performance.md](docs/performance.md) | Patterns used for speed, the benchmark and its method, the caveats |
 | [docs/testing.md](docs/testing.md) | Test layers, how to run each, the fake site, CI, lint and types |
