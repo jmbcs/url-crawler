@@ -71,7 +71,7 @@ def create_app(
             crawl = await repo.get(crawl_id)
             if crawl is None:
                 break
-            yield f"event: stats\ndata: {CrawlOut.from_orm_row(crawl).model_dump_json()}\n\n"
+            yield f"event: stats\ndata: {CrawlOut.model_validate(crawl).model_dump_json()}\n\n"
             if CrawlState(crawl.state) in TERMINAL_STATES:
                 break
             await asyncio.sleep(events_interval_seconds)
@@ -88,18 +88,18 @@ def create_app(
             raise HTTPException(status_code=422, detail={"seed": rejected})
         crawl = await repo.create(seed, body.to_config())
         response.headers["Location"] = f"/crawls/{crawl.id}"
-        return CrawlOut.from_orm_row(crawl)
+        return CrawlOut.model_validate(crawl)
 
     @app.get("/crawls")
     async def list_crawls(
         state: CrawlState | None = None, limit: int = Query(default=50, ge=1, le=200)
     ) -> CrawlList:
         crawls = await repo.list_recent(state=state, limit=limit)
-        return CrawlList(items=[CrawlOut.from_orm_row(crawl) for crawl in crawls])
+        return CrawlList(items=[CrawlOut.model_validate(crawl) for crawl in crawls])
 
     @app.get("/crawls/{crawl_id}")
     async def get_crawl(crawl_id: UUID) -> CrawlOut:
-        return CrawlOut.from_orm_row(await get_or_404(crawl_id))
+        return CrawlOut.model_validate(await get_or_404(crawl_id))
 
     @app.get("/crawls/{crawl_id}/pages")
     async def list_crawl_pages(

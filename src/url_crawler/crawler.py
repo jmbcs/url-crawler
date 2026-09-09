@@ -66,7 +66,7 @@ class Crawler:
         self._sleep = sleep
         self._frontier = Frontier()
         self._delay_lock = asyncio.Lock()
-        self._scope = HostScope(host="", port=None)
+        self._scope: HostScope | None = None
         self._robots: RobotsPolicy = AllowAll()
         self._claimed = 0
         self._consecutive_failures = 0
@@ -210,8 +210,10 @@ class Crawler:
         return resolve_href(result.location, url)
 
     def _enqueue(self, links: tuple[str, ...]) -> None:
+        scope = self._scope
+        assert scope is not None, "run() anchors the scope before any page is handled"
         for link in links:
-            if self._scope.allows(link) and self._robots.allows(link):
+            if scope.allows(link) and self._robots.allows(link):
                 self._frontier.add(link)
             else:
                 log.debug("printed but not followed: %s", link)

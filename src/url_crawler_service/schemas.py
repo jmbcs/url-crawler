@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from url_crawler.config import CrawlConfig
 from url_crawler.urls import normalize, prepare_seed
-from url_crawler_service.orm import Crawl, CrawlState, Page
+from url_crawler_service.orm import CrawlState, Page
 
 DEFAULTS = CrawlConfig()
 MAX_CONCURRENCY = 50
@@ -51,10 +51,6 @@ class CrawlOut(BaseModel):
     cancel_requested: bool
     stats: dict[str, Any] | None
     error: str | None
-
-    @classmethod
-    def from_orm_row(cls, crawl: Crawl) -> CrawlOut:
-        return cls.model_validate(crawl)
 
 
 class CrawlList(BaseModel):

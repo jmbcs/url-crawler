@@ -91,7 +91,7 @@ def test_crawl_out_reads_an_orm_row() -> None:
         error=None,
     )
 
-    out = CrawlOut.from_orm_row(crawl)
+    out = CrawlOut.model_validate(crawl)
 
     assert out.id == crawl.id
     assert out.state is CrawlState.RUNNING
