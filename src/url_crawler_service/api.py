@@ -130,6 +130,8 @@ def main() -> int:
     logging.basicConfig(
         stream=sys.stderr, level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
     )
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     try:
         settings = Settings.from_env()
     except SettingsError as exc:
