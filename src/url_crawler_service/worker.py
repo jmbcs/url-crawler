@@ -201,9 +201,7 @@ class Worker:
 
     async def _requeue(self, crawl: Crawl, stats: dict[str, object]) -> CrawlState:
         """Hand the crawl back to the queue, unless a cancel request raced the shutdown."""
-        await self._repo.release(crawl.id, self._worker_id)
-        stored = await self._repo.get(crawl.id)
-        if stored is None or stored.worker_id != self._worker_id:
+        if await self._repo.release(crawl.id, self._worker_id):
             return CrawlState.QUEUED
         await self._repo.finish(
             crawl.id, self._worker_id, CrawlState.ABORTED, stats, CANCELLED_ERROR

@@ -111,8 +111,8 @@ class CrawlRepository:
         async with self._sessions() as session, session.begin():
             await session.execute(statement)
 
-    async def release(self, crawl_id: uuid.UUID, worker_id: str) -> None:
-        """Requeue a crawl on a graceful worker shutdown, undoing the abort the worker recorded."""
+    async def release(self, crawl_id: uuid.UUID, worker_id: str) -> bool:
+        """Requeue a crawl on graceful shutdown, unless a cancel request raced it."""
         statement = (
             update(Crawl)
             .where(
@@ -120,16 +120,11 @@ class CrawlRepository:
                 Crawl.worker_id == worker_id,
                 Crawl.cancel_requested.is_(False),
             )
-            .values(
-                state=CrawlState.QUEUED.value,
-                worker_id=None,
-                heartbeat_at=None,
-                finished_at=None,
-                error=None,
-            )
+            .values(state=CrawlState.QUEUED.value, worker_id=None, heartbeat_at=None)
+            .returning(Crawl.id)
         )
         async with self._sessions() as session, session.begin():
-            await session.execute(statement)
+            return (await session.execute(statement)).first() is not None
 
     async def reap(self, lease_seconds: float, max_attempts: int) -> int:
         """Settle crawls whose worker stopped heartbeating: abort, requeue or fail them."""

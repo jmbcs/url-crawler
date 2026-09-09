@@ -204,7 +204,7 @@ async def test_release_requeues_the_crawl_without_touching_attempts(
     crawl = await repo.create("https://a.test/", CONFIG)
     await repo.claim("worker-1")
 
-    await repo.release(crawl.id, "worker-1")
+    assert await repo.release(crawl.id, "worker-1") is True
 
     stored = await repo.get(crawl.id)
     assert stored is not None
@@ -214,37 +214,17 @@ async def test_release_requeues_the_crawl_without_touching_attempts(
     assert stored.attempts == 1
 
 
-async def test_release_after_finish_clears_the_terminal_fields(repo: CrawlRepository) -> None:
-    crawl = await repo.create("https://a.test/", CONFIG)
-    await repo.claim("worker-1")
-    await repo.finish(
-        crawl.id, "worker-1", CrawlState.ABORTED, {"pages_total": 2}, error="cancelled by request"
-    )
-
-    await repo.release(crawl.id, "worker-1")
-
-    stored = await repo.get(crawl.id)
-    assert stored is not None
-    assert stored.state == CrawlState.QUEUED
-    assert stored.finished_at is None
-    assert stored.error is None
-    assert stored.worker_id is None
-    assert stored.heartbeat_at is None
-
-
-async def test_release_keeps_a_cancelled_crawl_aborted(repo: CrawlRepository) -> None:
+async def test_release_refuses_a_crawl_a_cancel_request_raced(repo: CrawlRepository) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
     await repo.claim("worker-1")
     await repo.request_cancel(crawl.id)
-    await repo.finish(crawl.id, "worker-1", CrawlState.ABORTED, {}, error="cancelled by request")
 
-    await repo.release(crawl.id, "worker-1")
+    assert await repo.release(crawl.id, "worker-1") is False
 
     stored = await repo.get(crawl.id)
     assert stored is not None
-    assert stored.state == CrawlState.ABORTED
-    assert stored.error == "cancelled by request"
-    assert stored.finished_at is not None
+    assert stored.state == CrawlState.RUNNING
+    assert stored.worker_id == "worker-1"
 
 
 async def test_reap_requeues_a_stale_crawl_below_max_attempts(
