@@ -127,6 +127,20 @@ class TickingClock:
         return self.now
 
 
+class SilentRepository(CrawlRepository):
+    """Never answers a heartbeat, the way a black-holed connection would."""
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        super().__init__(sessions)
+        self.beats = 0
+
+    async def heartbeat(
+        self, crawl_id: uuid.UUID, worker_id: str, stats: dict[str, object]
+    ) -> bool | None:
+        self.beats += 1
+        raise OperationalError("UPDATE crawl", {}, Exception("connection lost"))
+
+
 class FlakyFinishRepository(CrawlRepository):
     """Drops the first `failures` terminal writes the way a lost connection would."""
 
@@ -793,6 +807,31 @@ async def test_run_job_gives_up_on_the_final_write_once_the_lease_would_have_exp
 
     assert state is CrawlState.FINISHED
     assert f"crawl {crawl_id} completed as finished but could not be recorded" in caplog.text
+    stored = await repo.get(crawl_id)
+    assert stored is not None
+    assert stored.state == CrawlState.RUNNING
+
+
+async def test_the_heartbeat_gives_up_once_the_failing_calls_outlast_the_lease(
+    repo: CrawlRepository, engine: AsyncEngine
+) -> None:
+    site = FakeSite.generated(SLOW_SITE_PAGES)
+    silent = SilentRepository(make_session_factory(engine))
+    crawl_id, claimed = await claim_one(silent, f"http://{site.host}/")
+    settings = build_settings(heartbeat_seconds=0.01)
+    worker = Worker(
+        silent,
+        settings,
+        worker_id=WORKER_ID,
+        seed_guard=allow_any_host,
+        client_factory=slow_client_factory(site),
+        clock=TickingClock(settings.lease_seconds),
+    )
+
+    state = await asyncio.wait_for(worker.run_job(claimed), timeout=10.0)
+
+    assert state is CrawlState.ABORTED
+    assert silent.beats == 1
     stored = await repo.get(crawl_id)
     assert stored is not None
     assert stored.state == CrawlState.RUNNING

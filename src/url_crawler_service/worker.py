@@ -275,21 +275,20 @@ class Worker:
         started: float,
         crawl_task: asyncio.Task[CrawlOutcome],
     ) -> None:
-        silent_seconds = 0.0
+        last_ok = self._clock()
         while True:
             await asyncio.sleep(self._settings.heartbeat_seconds)
             snapshot = summary(stats, time.monotonic() - started)
             try:
                 cancel_requested = await self._repo.heartbeat(crawl.id, self._worker_id, snapshot)
             except Exception:
-                silent_seconds += self._settings.heartbeat_seconds
                 log.exception("crawl %s: heartbeat failed", crawl.id)
                 # Past the lease the reaper hands the crawl to another worker, so let it go.
-                if silent_seconds < self._settings.lease_seconds:
+                if self._clock() - last_ok < self._settings.lease_seconds:
                     continue
                 self._cancel(crawl_task, _Interrupt.LEASE_LOST)
                 return
-            silent_seconds = 0.0
+            last_ok = self._clock()
             if cancel_requested is None:
                 self._cancel(crawl_task, _Interrupt.LEASE_LOST)
                 return
