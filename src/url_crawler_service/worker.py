@@ -24,7 +24,7 @@ from url_crawler_service.db import create_engine, make_session_factory
 from url_crawler_service.models import stats_snapshot
 from url_crawler_service.orm import Crawl, CrawlState
 from url_crawler_service.reporter import DbReporter
-from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository
+from url_crawler_service.repository import CANCELLED_ERROR, CrawlRepository, LeaseLost
 from url_crawler_service.settings import Settings, SettingsError
 
 log = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ class Worker:
         reporter = DbReporter(
             self._repo,
             crawl.id,
+            worker_id=self._worker_id,
             batch_size=self._settings.page_batch_size,
             flush_seconds=self._settings.page_flush_seconds,
         )
@@ -178,6 +179,9 @@ class Worker:
         try:
             async with asyncio.timeout(FLUSH_TIMEOUT_SECONDS):
                 await reporter.close()
+        except LeaseLost:
+            log.warning("crawl %s: another worker owns it, dropping its pages", crawl.id)
+            self._interrupt = _Interrupt.LEASE_LOST
         except Exception as exc:
             log.exception("crawl %s could not write all of its pages", crawl.id)
             error = f"{type(exc).__name__}: {exc}"

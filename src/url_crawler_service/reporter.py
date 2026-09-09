@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from url_crawler.models import CrawlStats, PageResult
 from url_crawler_service.models import PageRow, page_row
-from url_crawler_service.repository import CrawlRepository
+from url_crawler_service.repository import CrawlRepository, LeaseLost
 
 log = logging.getLogger(__name__)
 
@@ -22,12 +22,14 @@ class DbReporter:
         repo: CrawlRepository,
         crawl_id: uuid.UUID,
         *,
+        worker_id: str,
         batch_size: int,
         flush_seconds: float,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._repo = repo
         self._crawl_id = crawl_id
+        self._worker_id = worker_id
         self._batch_size = batch_size
         self._flush_seconds = flush_seconds
         self._clock = clock
@@ -63,6 +65,8 @@ class DbReporter:
             self._full.clear()
             try:
                 await self._flush()
+            except LeaseLost:
+                raise
             except Exception:
                 log.exception("crawl %s: a page batch failed, retrying it", self._crawl_id)
 
@@ -78,6 +82,6 @@ class DbReporter:
             if not rows:
                 return
             # The rows stay buffered until the insert commits, so a failure can be retried.
-            await self._repo.insert_pages(self._crawl_id, rows)
+            await self._repo.insert_pages(self._crawl_id, self._worker_id, rows)
             del self._buffer[: len(rows)]
             self._pages_written += len(rows)

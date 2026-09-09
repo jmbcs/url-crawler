@@ -14,6 +14,7 @@ from url_crawler_service.reporter import DbReporter
 from url_crawler_service.repository import CrawlRepository
 
 CRAWL_ID = uuid.uuid4()
+WORKER_ID = "worker-under-test"
 NEVER = 60.0
 FLUSH_TIMEOUT_SECONDS = 2.0
 
@@ -25,8 +26,11 @@ class FakeRepository:
         self.batches: list[list[PageRow]] = []
         self.wrote = asyncio.Event()
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
         assert crawl_id == CRAWL_ID
+        assert worker_id == WORKER_ID
         self.batches.append(list(rows))
         self.wrote.set()
 
@@ -43,10 +47,12 @@ class BlockingRepository(FakeRepository):
         self.started = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
         self.started.set()
         await self.release.wait()
-        await super().insert_pages(crawl_id, rows)
+        await super().insert_pages(crawl_id, worker_id, rows)
 
 
 class FailingRepository(FakeRepository):
@@ -56,17 +62,21 @@ class FailingRepository(FakeRepository):
         super().__init__()
         self.failures = 1
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
         if self.failures:
             self.failures -= 1
             raise RuntimeError("insert rejected")
-        await super().insert_pages(crawl_id, rows)
+        await super().insert_pages(crawl_id, worker_id, rows)
 
 
 class UnwritableRepository(FakeRepository):
     """Rejects every insert, the way a database that stays down would."""
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
         raise RuntimeError("insert rejected")
 
 
@@ -76,6 +86,7 @@ def build_reporter(
     return DbReporter(
         cast(CrawlRepository, repo),
         CRAWL_ID,
+        worker_id=WORKER_ID,
         batch_size=batch_size,
         flush_seconds=flush_seconds,
     )

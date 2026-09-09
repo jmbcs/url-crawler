@@ -17,6 +17,10 @@ CANCELLED_ERROR = "cancelled by request"
 CANCELLED_BEFORE_START_ERROR = "cancelled before start"
 
 
+class LeaseLost(Exception):  # noqa: N818
+    """Raised when a write targets a crawl this worker no longer owns."""
+
+
 class CrawlRepository:
     """Every crawl and page read or write, each in its own short transaction."""
 
@@ -193,9 +197,21 @@ class CrawlRepository:
                 )
             return state
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
+        """Write a batch of pages, but only while this worker still owns the running crawl."""
         if not rows:
             return
+        owned = (
+            select(Crawl.id)
+            .where(
+                Crawl.id == crawl_id,
+                Crawl.worker_id == worker_id,
+                Crawl.state == CrawlState.RUNNING.value,
+            )
+            .with_for_update(read=True)
+        )
         values = [
             {
                 "crawl_id": crawl_id,
@@ -210,6 +226,8 @@ class CrawlRepository:
             for row in rows
         ]
         async with self._sessions() as session, session.begin():
+            if (await session.execute(owned)).first() is None:
+                raise LeaseLost(f"crawl {crawl_id} is not running under {worker_id}")
             await session.execute(insert(Page), values)
 
     async def list_pages(

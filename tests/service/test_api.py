@@ -124,7 +124,8 @@ async def test_list_filters_by_state(api: httpx.AsyncClient, repo: CrawlReposito
 
 async def test_pages_paginate_by_keyset(api: httpx.AsyncClient, repo: CrawlRepository) -> None:
     crawl = await repo.create("https://example.com/", CONFIG)
-    await repo.insert_pages(crawl.id, [page(seq) for seq in range(1, 251)])
+    await repo.claim(WORKER)
+    await repo.insert_pages(crawl.id, WORKER, [page(seq) for seq in range(1, 251)])
 
     seen: list[int] = []
     after = 0
@@ -146,6 +147,7 @@ async def test_pages_expose_the_error_of_a_failed_page(
     api: httpx.AsyncClient, repo: CrawlRepository
 ) -> None:
     crawl = await repo.create("https://example.com/", CONFIG)
+    await repo.claim(WORKER)
     failed = PageRow(
         seq=1,
         url="https://example.com/slow",
@@ -155,7 +157,7 @@ async def test_pages_expose_the_error_of_a_failed_page(
         links=(),
         fetched_at=datetime.now(UTC),
     )
-    await repo.insert_pages(crawl.id, [failed])
+    await repo.insert_pages(crawl.id, WORKER, [failed])
 
     item = (await api.get(f"/crawls/{crawl.id}/pages")).json()["items"][0]
 

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from url_crawler_service.models import PageRow
 from url_crawler_service.orm import Crawl, CrawlState
-from url_crawler_service.repository import CrawlRepository
+from url_crawler_service.repository import CrawlRepository, LeaseLost
 
 CONFIG: dict[str, Any] = {
     "concurrency": 4,
@@ -135,7 +135,7 @@ async def test_claim_skips_a_crawl_another_transaction_holds(
 async def test_claim_deletes_pages_from_a_previous_attempt(repo: CrawlRepository) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
     await repo.claim("worker-1")
-    await repo.insert_pages(crawl.id, [page(1), page(2)])
+    await repo.insert_pages(crawl.id, "worker-1", [page(1), page(2)])
     await repo.release(crawl.id, "worker-1")
 
     claimed = await repo.claim("worker-2")
@@ -370,7 +370,8 @@ async def test_request_cancel_returns_none_for_an_unknown_id(repo: CrawlReposito
 
 async def test_insert_pages_and_list_pages_paginate_by_seq(repo: CrawlRepository) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
-    await repo.insert_pages(crawl.id, [page(seq) for seq in range(1, 6)])
+    await repo.claim("worker-1")
+    await repo.insert_pages(crawl.id, "worker-1", [page(seq) for seq in range(1, 6)])
 
     first = await repo.list_pages(crawl.id, limit=2)
     second = await repo.list_pages(crawl.id, after_seq=first[-1].seq, limit=2)
@@ -387,13 +388,14 @@ async def test_insert_pages_and_list_pages_paginate_by_seq(repo: CrawlRepository
 async def test_insert_pages_accepts_an_empty_batch(repo: CrawlRepository) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
 
-    await repo.insert_pages(crawl.id, [])
+    await repo.insert_pages(crawl.id, "worker-1", [])
 
     assert await repo.list_pages(crawl.id) == []
 
 
 async def test_insert_pages_stores_failures(repo: CrawlRepository) -> None:
     crawl = await repo.create("https://a.test/", CONFIG)
+    await repo.claim("worker-1")
     failed = PageRow(
         seq=1,
         url="https://a.test/gone",
@@ -404,12 +406,27 @@ async def test_insert_pages_stores_failures(repo: CrawlRepository) -> None:
         fetched_at=datetime.now(UTC),
     )
 
-    await repo.insert_pages(crawl.id, [failed])
+    await repo.insert_pages(crawl.id, "worker-1", [failed])
 
     stored = await repo.list_pages(crawl.id)
     assert stored[0].error_kind == "http_status"
     assert stored[0].error_message == "404 Not Found"
     assert stored[0].links == []
+
+
+async def test_insert_pages_refuses_a_worker_that_lost_the_lease(
+    repo: CrawlRepository, engine: AsyncEngine
+) -> None:
+    crawl = await repo.create("https://a.test/", CONFIG)
+    await repo.claim("worker-1")
+    await age_heartbeat(engine, crawl.id, 120)
+    await repo.reap(lease_seconds=30, max_attempts=3)
+    assert await repo.claim("worker-2") is not None
+
+    with pytest.raises(LeaseLost):
+        await repo.insert_pages(crawl.id, "worker-1", [page(1)])
+
+    assert await repo.list_pages(crawl.id) == []
 
 
 async def test_ping_succeeds(repo: CrawlRepository) -> None:

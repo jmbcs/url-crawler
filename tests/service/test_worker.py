@@ -88,7 +88,9 @@ class UnreapableRepository(CrawlRepository):
 class UnwritableRepository(CrawlRepository):
     """Rejects every page insert, so the crawl cannot record its results."""
 
-    async def insert_pages(self, crawl_id: uuid.UUID, rows: Sequence[PageRow]) -> None:
+    async def insert_pages(
+        self, crawl_id: uuid.UUID, worker_id: str, rows: Sequence[PageRow]
+    ) -> None:
         raise OperationalError("INSERT INTO page", {}, Exception("disk full"))
 
 
