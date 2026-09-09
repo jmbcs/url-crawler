@@ -3,8 +3,8 @@
 The test layers, how to run each of them, the fake site they share, and what CI runs.
 
 Six layers plus the tests that keep the fixtures honest, all deterministic, with no external network
-in the default run. `make test` collects 663 tests; 80 of them need a Postgres and skip without one,
-and a single network smoke test is deselected unless you ask for it. With a Postgres, all 663 pass.
+in the default run. `make test` collects 676 tests; 80 of them need a Postgres and skip without one,
+and a single network smoke test is deselected unless you ask for it. With a Postgres, all 676 pass.
 
 ## Commands
 

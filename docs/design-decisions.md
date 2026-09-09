@@ -71,14 +71,17 @@ apex, with no link from the `www` host; the wide scope is a two-line change to `
 
 ## Robots on by default, and unreadable means blocked
 
-robots.txt is fetched once for the final seed host, parsed with `urllib.robotparser`, and applied to
+robots.txt is fetched once for the final seed host, parsed here, and applied to
 every candidate URL before it enters the frontier. The seed itself is the one URL fetched before
 robots.txt is read, because its redirect chain decides which host's robots.txt applies. A
 `Crawl-delay` is honoured by serializing a sleep across the workers, and the crawler logs one
 warning naming the delay and the pages per hour it implies, so a throttled crawl does not look hung.
 
-Matching follows RFC 9309 section 2.2 rather than the standard library. The stdlib parser still does
-the parsing, the group selection and `Crawl-delay`; the matcher on top of it is this repository's:
+Matching follows RFC 9309 section 2.2 rather than the standard library. Parsing, group selection,
+`Crawl-delay` and matching are all this repository's. `urllib.robotparser` is no longer used at all:
+its group selection reads parser internals that Python 3.13 rearranged, and it picks a group by
+substring rather than by longest prefix, so the delay and the rules could come from two different
+groups. The rules this repository applies are:
 
 - `*` matches any run of characters, and a trailing `$` anchors the end of the path.
 - The longest matching rule wins, whatever order the rules appear in the file.

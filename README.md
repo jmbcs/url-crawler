@@ -297,7 +297,7 @@ curl -sS localhost:8000/healthz
   extra. The frontier, the scope check, the retry policy, the robots.txt handling and the link
   extraction are written here rather than pulled from a crawling framework, which is what makes each
   of them testable and explainable in the docs below.
-- **663 tests**, deterministic and offline by default, over a fake site that packs every crawl
+- **676 tests**, deterministic and offline by default, over a fake site that packs every crawl
   hazard into 20 pages. 82% coverage offline, 97% with a Postgres
   ([docs/testing.md](docs/testing.md)).
 
@@ -305,7 +305,7 @@ Everything runs through `make`, and CI runs the same targets:
 
 ```bash
 make check     # ruff check, ruff format --check, mypy --strict, then the test suite
-make test      # 663 tests, offline and deterministic
+make test      # 676 tests, offline and deterministic
 make db-up     # local Postgres for the service and its tests
 make bench     # the concurrency sweep behind the speed number above
 ```

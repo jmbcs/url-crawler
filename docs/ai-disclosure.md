@@ -81,7 +81,7 @@ typed by hand.
 
 Nothing here is claimed on the strength of a model having said it.
 
-- Behaviour is asserted by the test suite: 663 tests across the layers listed in
+- Behaviour is asserted by the test suite: 676 tests across the layers listed in
   [testing.md](testing.md), of which 80 need a Postgres (`make test`, then
   `make db-up && make test-service`), plus one network smoke test deselected by default. The crawl
   contract, the retry table, the scope near-misses, the exit codes and the claim, heartbeat and
