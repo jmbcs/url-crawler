@@ -3,6 +3,10 @@
 An optional API and worker that turn a crawl into a background job. For operators running it, not
 readers of the crawler's core code.
 
+Getting started is the [service walkthrough](../README.md#the-crawl-service) in the README, six
+steps from `docker compose up --build -d` to `docker compose down`. This page is the reference
+behind it and does not repeat it.
+
 `POST /crawls` queues a crawl, a worker claims it from Postgres and runs the same `Crawler` the CLI
 runs, and pages are readable by cursor while the crawl is still going. The API never crawls and the
 worker never serves HTTP, so Postgres is the only thing they share. Both live in
@@ -10,23 +14,11 @@ worker never serves HTTP, so Postgres is the only thing they share. Both live in
 
 ## Run it
 
-```bash
-docker compose up --build                        # postgres, alembic upgrade, api on :8000
-docker compose up --build --scale worker=3       # more workers; nothing coordinates them
-```
-
-```bash
-curl -sS -X POST localhost:8000/crawls \
-  -H 'content-type: application/json' \
-  -d '{"seed": "https://example.com"}'
-# {"id":"7c1f...","seed":"https://example.com/","state":"queued", ...}
-
-curl -sS localhost:8000/crawls/7c1f.../pages | jq '.items[] | {url, status, links}'
-curl -sN localhost:8000/crawls/7c1f.../events      # server-sent progress until the crawl ends
-```
-
-Without Docker, `uv sync` installs the `service` extra (`pip install 'url-crawler[service]'`
-otherwise); missing it, both console scripts print an error and exit 2 instead of crashing:
+- **With Docker:** `docker compose up --build -d` starts Postgres, runs `alembic upgrade head` to
+  completion, then the API on `:8000` and one worker. `--scale worker=3` runs more workers; nothing
+  coordinates them, each claims its own crawl.
+- **Without Docker:** `uv sync` installs the `service` extra (`pip install 'url-crawler[service]'`
+  otherwise). Missing it, both console scripts print an error and exit 2 instead of crashing.
 
 ```bash
 make db-up          # postgres on :55432, plus the crawler_test database
@@ -44,11 +36,11 @@ make test-service   # 84 tests against crawler_test; the suite migrates it itsel
 | --- | --- | --- |
 | `POST` | `/crawls` | Queue a crawl. 202 with the crawl and a `Location` header. 422 when the seed is not a crawlable http(s) URL, its host is private or unresolvable, or a field is out of range or unknown. |
 | `GET` | `/crawls` | Newest first. `state` filters, `limit` is 1 to 200, default 50. |
-| `GET` | `/crawls/{id}` | State, timestamps, attempts, the stats snapshot and the error. 404 when unknown. |
+| `GET` | `/crawls/{id}` | State, timestamps, attempts, the stats snapshot and the error. 404 `{"detail": "crawl not found"}` when unknown. |
 | `GET` | `/crawls/{id}/pages` | Keyset page list: `after` is the last `seq` seen, `limit` is 1 to 500, default 100. `next_after` is null once you have read everything written so far. |
-| `GET` | `/crawls/{id}/events` | `text/event-stream`. An `event: stats` frame every two seconds, then one `event: end`. 404 when unknown. |
-| `DELETE` | `/crawls/{id}` | Request cancellation. 202 with the resulting state. 404 when unknown. |
-| `GET` | `/healthz` | 200 after a `SELECT 1`, 503 when the database is unreachable. |
+| `GET` | `/crawls/{id}/events` | `text/event-stream`. An `event: stats` frame every two seconds carrying the `GET /crawls/{id}` body, then one `event: end` at a terminal state. 404 when unknown. |
+| `DELETE` | `/crawls/{id}` | Request cancellation, not a kill. 202 with the resulting state: `queued` aborts outright, `running` stops at its worker's next heartbeat with partial pages kept, a terminal crawl comes back unchanged. 404 when unknown. |
+| `GET` | `/healthz` | 200 `{"status": "ok"}` after a `SELECT 1`, 503 `{"detail": "database unavailable"}` when the database is unreachable. |
 
 - Pydantic rejects unknown fields: `concurrency` 1-50, `timeout` above 0 up to 60s (the request
   budget; a longer value is invalid, so an over-budget request is a 422 at submission, not a later
