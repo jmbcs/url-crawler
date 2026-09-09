@@ -49,6 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=args.timeout,
             max_pages=args.max_pages,
             max_bytes=args.max_bytes,
+            request_budget=args.request_budget,
             respect_robots=not args.ignore_robots,
         )
     except ValueError as exc:
@@ -102,7 +103,7 @@ async def _crawl(
 ) -> int:
     async with build_client(config) as client:
         crawler = Crawler(
-            Fetcher(client, max_bytes=config.max_bytes),
+            Fetcher(client, max_bytes=config.max_bytes, request_budget=config.request_budget),
             reporter,
             config,
             stats,
@@ -188,6 +189,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULTS.max_bytes,
         help="skip a page whose body exceeds this size (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--request-budget",
+        type=float,
+        default=DEFAULTS.request_budget,
+        help="total time allowed for one request including the body (default: %(default)s)",
     )
     parser.add_argument("--format", choices=("text", "jsonl"), default="text", help="output format")
     parser.add_argument(

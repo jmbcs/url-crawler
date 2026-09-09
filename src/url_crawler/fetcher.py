@@ -50,6 +50,7 @@ class Fetcher:
         *,
         max_bytes: int,
         max_attempts: int = 3,
+        request_budget: float = 60.0,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: random.Random | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -57,6 +58,7 @@ class Fetcher:
         self._client = client
         self._max_bytes = max_bytes
         self._max_attempts = max_attempts
+        self._request_budget = request_budget
         self._sleep = sleep
         self._rng = rng if rng is not None else random.Random()
         self._now = now
@@ -72,14 +74,21 @@ class Fetcher:
 
     async def _attempt(self, url: str, attempt: int) -> FetchResult | FetchError | _Retry:
         try:
-            async with self._client.stream("GET", url) as response:
-                return await self._handle(url, response, attempt)
-        except _HANDLED_EXCEPTIONS as exc:
-            delay = self._delay(status=None, exc=exc, attempt=attempt, retry_after=None)
-            if delay is None:
-                message = str(exc) or type(exc).__name__
-                return FetchError(url, _error_kind(exc), None, message, attempt)
-            return _Retry(delay)
+            async with asyncio.timeout(self._request_budget):
+                async with self._client.stream("GET", url) as response:
+                    return await self._handle(url, response, attempt)
+        except TimeoutError:
+            # The budget covers the whole request, so report and retry it like any read timeout.
+            exc: Exception = httpx.TimeoutException(
+                f"request took longer than the {self._request_budget}s budget"
+            )
+        except _HANDLED_EXCEPTIONS as caught:
+            exc = caught
+        delay = self._delay(status=None, exc=exc, attempt=attempt, retry_after=None)
+        if delay is None:
+            message = str(exc) or type(exc).__name__
+            return FetchError(url, _error_kind(exc), None, message, attempt)
+        return _Retry(delay)
 
     async def _handle(
         self, url: str, response: httpx.Response, attempt: int

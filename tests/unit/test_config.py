@@ -15,6 +15,7 @@ def test_defaults() -> None:
     assert config.timeout == 10.0
     assert config.max_pages is None
     assert config.max_bytes == 5_000_000
+    assert config.request_budget == 60.0
     assert config.respect_robots is True
     assert config.max_seed_redirects == 5
     assert config.failure_fuse == 20
@@ -34,6 +35,9 @@ def test_defaults() -> None:
         {"max_pages": -1},
         {"max_bytes": 0},
         {"max_bytes": -1},
+        {"request_budget": 0},
+        {"request_budget": -1.0},
+        {"request_budget": 5.0, "timeout": 10.0},
         {"max_seed_redirects": -1},
         {"failure_fuse": 0},
         {"failure_fuse": -1},

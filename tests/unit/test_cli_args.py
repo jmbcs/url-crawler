@@ -19,6 +19,7 @@ def test_defaults() -> None:
     assert args.timeout == 10.0
     assert args.max_pages is None
     assert args.max_bytes == 5_000_000
+    assert args.request_budget == 60.0
     assert args.format == "text"
     assert args.ignore_robots is False
     assert args.quiet is False
@@ -37,6 +38,8 @@ def test_flags_are_parsed() -> None:
             "7",
             "--max-bytes",
             "1024",
+            "--request-budget",
+            "12.5",
             "--format",
             "jsonl",
             "--ignore-robots",
@@ -45,6 +48,7 @@ def test_flags_are_parsed() -> None:
         ]
     )
     assert (args.concurrency, args.timeout, args.max_pages, args.max_bytes) == (3, 2.5, 7, 1024)
+    assert args.request_budget == 12.5
     assert args.format == "jsonl"
     assert args.ignore_robots is True
     assert args.quiet is True
@@ -72,6 +76,8 @@ def test_argparse_usage_errors_exit_with_code_2(argv: list[str]) -> None:
         ["http://example.com", "--timeout", "0"],
         ["http://example.com", "--max-pages", "0"],
         ["http://example.com", "--max-bytes", "0"],
+        ["http://example.com", "--request-budget", "0"],
+        ["http://example.com", "--request-budget", "1", "--timeout", "5"],
     ],
 )
 def test_invalid_values_exit_with_code_2_before_any_request(argv: list[str]) -> None:

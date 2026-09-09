@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import random
+import time
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 
@@ -31,6 +33,7 @@ async def fetch_with(
     *,
     max_bytes: int = 1_000_000,
     max_attempts: int = 3,
+    request_budget: float = 60.0,
 ) -> tuple[FetchResult | FetchError, list[float]]:
     sleep = RecordingSleep()
     async with httpx.AsyncClient(
@@ -40,6 +43,7 @@ async def fetch_with(
             client,
             max_bytes=max_bytes,
             max_attempts=max_attempts,
+            request_budget=request_budget,
             sleep=sleep,
             rng=random.Random(0),
             now=lambda: NOW,
@@ -337,3 +341,34 @@ async def test_empty_mime_type_is_treated_as_html() -> None:
     assert isinstance(result, FetchResult)
     assert result.content_type == "text/html"
     assert result.body == HTML
+
+
+async def test_request_budget_gives_up_on_a_stalled_body() -> None:
+    requests: list[httpx.Request] = []
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"x"
+        await asyncio.sleep(10)
+        yield b"y"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, headers={"content-type": "text/html"}, content=body())
+
+    started = time.monotonic()
+    result, delays = await fetch_with(handler, request_budget=0.05)
+
+    assert isinstance(result, FetchError)
+    assert result.kind is FetchErrorKind.TIMEOUT
+    assert result.attempts == 3
+    assert len(requests) == 3
+    assert len(delays) == 2
+    assert time.monotonic() - started < 1.0
+
+
+async def test_fetch_inside_the_request_budget_succeeds() -> None:
+    handler, _ = responder(httpx.Response(200, content=HTML, headers={"content-type": "text/html"}))
+
+    result, _ = await fetch_with(handler, request_budget=5.0)
+
+    assert result == FetchResult(URL, 200, HTML, "text/html", None, 1)

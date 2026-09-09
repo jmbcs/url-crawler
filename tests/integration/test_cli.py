@@ -82,6 +82,7 @@ def test_help_lists_the_flags() -> None:
         "--timeout",
         "--max-pages",
         "--max-bytes",
+        "--request-budget",
         "--format",
         "--ignore-robots",
         "--quiet",
