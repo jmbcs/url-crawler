@@ -39,10 +39,15 @@ class RecordingSleep:
 
     def __init__(self) -> None:
         self.delays: list[float] = []
+        self.live = 0
+        self.peak = 0
 
     async def __call__(self, delay: float) -> None:
         self.delays.append(delay)
+        self.live += 1
+        self.peak = max(self.peak, self.live)
         await asyncio.sleep(0)
+        self.live -= 1
 
 
 class SlowTransport(httpx.MockTransport):
@@ -50,6 +55,23 @@ class SlowTransport(httpx.MockTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         await asyncio.sleep(0)
+        return await super().handle_async_request(request)
+
+
+class GaugeTransport(httpx.MockTransport):
+    """Tracks how many requests are in flight at once around a fixed per-request delay."""
+
+    def __init__(self, handler: Handler, delay: float = 0.02) -> None:
+        super().__init__(handler)
+        self._delay = delay
+        self.live = 0
+        self.peak = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.live += 1
+        self.peak = max(self.peak, self.live)
+        await asyncio.sleep(self._delay)
+        self.live -= 1
         return await super().handle_async_request(request)
 
 
@@ -296,6 +318,35 @@ async def test_crawl_delay_is_applied_once_per_fetched_page(
     crawl = await run_crawl(fake_client, robots_loader=delayed_robots)
 
     assert crawl.sleeps.delays == [0.25] * (crawl.stats.pages_total - 1)
+
+
+async def test_crawl_delay_lock_serialises_the_sleep_across_workers(
+    fake_client: httpx.AsyncClient,
+) -> None:
+    """The hazard site has enough pages that concurrency=8 saturates the worker pool."""
+    crawl = await run_crawl(
+        fake_client,
+        config=CrawlConfig(concurrency=8),
+        robots_loader=delayed_robots,
+    )
+
+    assert crawl.sleeps.peak == 1
+
+
+async def test_concurrency_caps_pages_in_flight() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/":
+            targets = [f"/p{index}" for index in range(30)]
+            return httpx.Response(200, content=links_html(*targets), headers=HTML_HEADERS)
+        return httpx.Response(200, content=b"<p>leaf</p>", headers=HTML_HEADERS)
+
+    for concurrency in (1, 5, 10):
+        gauge = GaugeTransport(handler)
+        async with httpx.AsyncClient(transport=gauge, follow_redirects=False) as client:
+            await run_crawl(
+                client, config=CrawlConfig(concurrency=concurrency, respect_robots=False)
+            )
+        assert gauge.peak == concurrency
 
 
 async def test_stops_at_max_pages_even_with_every_worker_in_flight(
