@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
-import urllib.robotparser
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any, Protocol
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass, field
+from typing import Protocol
 from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
@@ -53,16 +52,24 @@ class _Rule:
     allowance: bool
 
 
+@dataclass(slots=True)
+class _Group:
+    """One robots.txt record: the agent tokens that open it and the lines that follow them."""
+
+    agents: list[str] = field(default_factory=list)
+    rules: list[_Rule] = field(default_factory=list)
+    crawl_delay: float | None = None
+
+
 class RobotsTxt:
-    def __init__(self, parser: urllib.robotparser.RobotFileParser, user_agent: str) -> None:
-        self._parser = parser
-        self._user_agent = user_agent
-        self._rules = _group_rules(parser, user_agent)
+    def __init__(self, body: str, user_agent: str) -> None:
+        group = _select_group(_parse_groups(body.splitlines()), user_agent)
+        self._rules = group.rules if group is not None else []
+        self._crawl_delay = group.crawl_delay if group is not None else None
 
     @property
     def crawl_delay(self) -> float | None:
-        delay = self._parser.crawl_delay(self._user_agent)
-        return float(delay) if delay is not None else None
+        return self._crawl_delay
 
     def allows(self, url: str) -> bool:
         """RFC 9309 section 2.2.2: the longest matching rule decides, Allow breaking ties."""
@@ -74,20 +81,66 @@ class RobotsTxt:
         return any(rule.allowance for rule in matched if rule.length == longest)
 
 
-def _group_rules(parser: urllib.robotparser.RobotFileParser, user_agent: str) -> list[_Rule]:
-    """The rules of the group that applies to user_agent, as matchable patterns."""
-    # The parsed groups carry the rule paths but are absent from the typeshed stub.
-    parsed: Any = parser
-    entry = next(
-        (group for group in parsed.entries if group.applies_to(user_agent)), parsed.default_entry
-    )
-    if entry is None:
-        return []
-    rules: list[_Rule] = []
-    for line in entry.rulelines:
-        path = unquote(line.path)
-        rules.append(_Rule(_rule_pattern(path), len(path), bool(line.allowance)))
-    return rules
+def _parse_groups(lines: Iterable[str]) -> list[_Group]:
+    """RFC 9309 section 2.2.1: consecutive user-agent lines open one group, its rules follow."""
+    groups: list[_Group] = []
+    naming_agents = False
+    for line in lines:
+        parsed = _parse_line(line)
+        if parsed is None:
+            continue
+        name, value = parsed
+        if name == "user-agent":
+            if not naming_agents:
+                groups.append(_Group())
+            groups[-1].agents.append(value.lower())
+            naming_agents = True
+            continue
+        naming_agents = False
+        if not groups:
+            continue
+        if name in ("allow", "disallow"):
+            groups[-1].rules.append(_rule(name, value))
+        elif name == "crawl-delay":
+            delay = _delay(value)
+            if delay is not None:
+                groups[-1].crawl_delay = delay
+    return groups
+
+
+def _parse_line(line: str) -> tuple[str, str] | None:
+    """A line's lowercased field name and value, or None when it carries neither."""
+    name, separator, value = line.split("#", 1)[0].partition(":")
+    return (name.strip().lower(), value.strip()) if separator else None
+
+
+def _rule(name: str, path: str) -> _Rule:
+    """An empty `Disallow:` allows everything, which is what RFC 9309 says it means."""
+    unquoted = unquote(path)
+    return _Rule(_rule_pattern(unquoted), len(unquoted), name == "allow" or not unquoted)
+
+
+def _delay(value: str) -> float | None:
+    try:
+        delay = float(value)
+    except ValueError:
+        return None
+    return delay if delay > 0 else None
+
+
+def _select_group(groups: list[_Group], user_agent: str) -> _Group | None:
+    """RFC 9309 section 2.2.1: the longest agent token matching ours wins, else the `*` group."""
+    token = user_agent.split("/")[0].strip().lower()
+    best: _Group | None = None
+    best_length = 0
+    wildcard: _Group | None = None
+    for group in groups:
+        for agent in group.agents:
+            if agent == "*":
+                wildcard = group if wildcard is None else wildcard
+            elif agent and token.startswith(agent) and len(agent) > best_length:
+                best, best_length = group, len(agent)
+    return best if best is not None else wildcard
 
 
 def _rule_pattern(path: str) -> re.Pattern[str]:
@@ -134,9 +187,7 @@ async def load_robots(
         log.info("robots.txt at %s is unavailable; every path is allowed", robots_url)
         return AllowAll()
 
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(body.splitlines())
-    return RobotsTxt(parser, user_agent)
+    return RobotsTxt(body, user_agent)
 
 
 async def _fetch_robots(

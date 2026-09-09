@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import urllib.robotparser
 import zlib
 from collections.abc import Callable
 
@@ -224,37 +223,140 @@ async def test_load_robots_truncates_body_past_cap() -> None:
 
 
 def test_robots_txt_crawl_delay_absent_is_none() -> None:
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(["User-agent: *", "Disallow:"])
-    policy = RobotsTxt(parser, USER_AGENT)
+    policy = policy_for("User-agent: *", "Disallow:")
 
     assert policy.crawl_delay is None
     assert policy.allows("https://example.com/x") is True
 
 
-def test_robots_txt_allows_delegates_to_parser() -> None:
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(["User-agent: *", "Disallow: /secret"])
-    policy = RobotsTxt(parser, USER_AGENT)
+def test_robots_txt_reads_the_crawl_delay_of_the_chosen_group() -> None:
+    policy = policy_for(
+        "User-agent: *",
+        "Crawl-delay: 9",
+        "",
+        "User-agent: url-crawler",
+        "Crawl-delay: 2.5",
+    )
+
+    assert policy.crawl_delay == 2.5
+
+
+def test_robots_txt_ignores_an_unparsable_crawl_delay() -> None:
+    policy = policy_for("User-agent: *", "Crawl-delay: soon")
+
+    assert policy.crawl_delay is None
+
+
+def test_robots_txt_blocks_a_disallowed_path() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /secret")
 
     assert policy.allows("https://example.com/secret") is False
     assert policy.allows("https://example.com/open") is True
 
 
+def test_robots_txt_applies_the_wildcard_group_to_a_specific_agent() -> None:
+    policy = policy_for("User-agent: *", "Disallow: /private")
+
+    assert policy.allows("https://example.com/private") is False
+
+
 def test_robots_txt_applies_user_agent_specific_group() -> None:
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(
-        [
-            "User-agent: url-crawler",
-            "Disallow: /",
-            "",
-            "User-agent: *",
-            "Disallow:",
-        ]
+    lines = (
+        "User-agent: url-crawler",
+        "Disallow: /",
+        "",
+        "User-agent: *",
+        "Disallow:",
     )
 
-    assert RobotsTxt(parser, USER_AGENT).allows("https://example.com/") is False
-    assert RobotsTxt(parser, "otherbot/1.0").allows("https://example.com/") is True
+    assert RobotsTxt("\n".join(lines), USER_AGENT).allows("https://example.com/") is False
+    assert RobotsTxt("\n".join(lines), "otherbot/1.0").allows("https://example.com/") is True
+
+
+def test_robots_txt_prefers_a_named_group_declared_after_the_wildcard() -> None:
+    policy = policy_for(
+        "User-agent: *",
+        "Disallow:",
+        "",
+        "User-agent: url-crawler",
+        "Disallow: /",
+    )
+
+    assert policy.allows("https://example.com/anything") is False
+
+
+def test_robots_txt_prefers_the_longest_matching_agent_token() -> None:
+    policy = policy_for(
+        "User-agent: url",
+        "Disallow: /",
+        "",
+        "User-agent: url-crawler",
+        "Disallow: /private",
+    )
+
+    assert policy.allows("https://example.com/public") is True
+    assert policy.allows("https://example.com/private") is False
+
+
+def test_robots_txt_matches_the_agent_token_case_insensitively() -> None:
+    policy = policy_for("USER-AGENT: URL-Crawler", "Disallow: /private")
+
+    assert policy.allows("https://example.com/private") is False
+
+
+def test_robots_txt_shares_one_group_across_consecutive_user_agent_lines() -> None:
+    policy = policy_for(
+        "User-agent: otherbot",
+        "User-agent: url-crawler",
+        "Disallow: /private",
+        "",
+        "User-agent: *",
+        "Disallow:",
+    )
+
+    assert policy.allows("https://example.com/private") is False
+
+
+def test_robots_txt_ignores_a_group_for_another_agent() -> None:
+    policy = policy_for(
+        "User-agent: otherbot",
+        "Disallow: /",
+        "",
+        "User-agent: *",
+        "Disallow: /private",
+    )
+
+    assert policy.allows("https://example.com/public") is True
+    assert policy.allows("https://example.com/private") is False
+
+
+def test_robots_txt_allows_everything_when_no_group_applies() -> None:
+    policy = policy_for("User-agent: otherbot", "Disallow: /")
+
+    assert policy.allows("https://example.com/anything") is True
+
+
+def test_robots_txt_skips_comments_and_blank_lines() -> None:
+    policy = policy_for(
+        "# a leading comment",
+        "User-agent: *  # our group",
+        "",
+        "not a field line",
+        "Disallow: /private  # keep out",
+        "",
+        "Crawl-delay: 3",
+    )
+
+    assert policy.allows("https://example.com/private") is False
+    assert policy.allows("https://example.com/public") is True
+    assert policy.crawl_delay == 3.0
+
+
+def test_robots_txt_ignores_rules_before_any_user_agent_line() -> None:
+    policy = policy_for("Disallow: /orphan", "User-agent: *", "Disallow: /private")
+
+    assert policy.allows("https://example.com/orphan") is True
+    assert policy.allows("https://example.com/private") is False
 
 
 async def test_load_robots_returns_deny_all_on_undecodable_body() -> None:
@@ -370,9 +472,7 @@ async def test_load_robots_reads_a_gzipped_body() -> None:
 
 
 def policy_for(*lines: str) -> RobotsTxt:
-    parser = urllib.robotparser.RobotFileParser()
-    parser.parse(list(lines))
-    return RobotsTxt(parser, USER_AGENT)
+    return RobotsTxt("\n".join(lines), USER_AGENT)
 
 
 @pytest.mark.parametrize(
