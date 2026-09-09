@@ -55,25 +55,36 @@ class Worker:
         worker_id: str,
         client_factory: ClientFactory = build_client,
         seed_guard: SeedGuard = private_host_reason,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._repo = repo
         self._settings = settings
         self._worker_id = worker_id
         self._client_factory = client_factory
         self._seed_guard = seed_guard
+        self._clock = clock
+        self._last_reap: float | None = None
         self._interrupt: _Interrupt | None = None
 
     async def run_once(self, *, stop: asyncio.Event | None = None) -> bool:
         """Reap expired leases and run one crawl; False when the queue is empty."""
-        reaped = await self._repo.reap(self._settings.lease_seconds, self._settings.max_attempts)
-        if reaped:
-            log.info("reaped %d crawl(s) whose worker went silent", reaped)
+        await self._reap_if_due()
         crawl = await self._repo.claim(self._worker_id)
         if crawl is None:
             return False
         log.info("claimed crawl %s for %s", crawl.id, crawl.seed)
         await self.run_job(crawl, stop=stop)
         return True
+
+    async def _reap_if_due(self) -> None:
+        """Once per lease rather than once per poll: every worker runs the same three updates."""
+        now = self._clock()
+        if self._last_reap is not None and now - self._last_reap < self._settings.lease_seconds:
+            return
+        self._last_reap = now
+        reaped = await self._repo.reap(self._settings.lease_seconds, self._settings.max_attempts)
+        if reaped:
+            log.info("reaped %d crawl(s) whose worker went silent", reaped)
 
     async def run_forever(self, stop: asyncio.Event) -> None:
         while not stop.is_set():

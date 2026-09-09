@@ -91,6 +91,28 @@ class UnreapableRepository(CrawlRepository):
         return await super().reap(lease_seconds, max_attempts)
 
 
+class CountingRepository(CrawlRepository):
+    """Counts how often the worker reaps expired leases."""
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        super().__init__(sessions)
+        self.reaps = 0
+
+    async def reap(self, lease_seconds: float, max_attempts: int) -> int:
+        self.reaps += 1
+        return await super().reap(lease_seconds, max_attempts)
+
+
+class FakeClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
 class UnwritableRepository(CrawlRepository):
     """Rejects every page insert, so the crawl cannot record its results."""
 
@@ -554,6 +576,28 @@ async def test_run_once_claims_and_finishes_a_queued_crawl(
     assert stored is not None
     assert stored.state == CrawlState.FINISHED
     assert stored.attempts == 1
+
+
+async def test_the_reaper_runs_once_per_lease_and_not_once_per_poll(
+    repo: CrawlRepository, engine: AsyncEngine
+) -> None:
+    counting = CountingRepository(make_session_factory(engine))
+    clock = FakeClock()
+    lease_seconds = 30.0
+    worker = Worker(
+        counting, build_settings(lease_seconds=lease_seconds), worker_id=WORKER_ID, clock=clock
+    )
+
+    assert await worker.run_once() is False
+    assert counting.reaps == 1
+
+    clock.now = lease_seconds - 0.1
+    assert await worker.run_once() is False
+    assert counting.reaps == 1
+
+    clock.now = lease_seconds
+    assert await worker.run_once() is False
+    assert counting.reaps == 2
 
 
 async def test_run_forever_returns_when_the_stop_event_is_set(repo: CrawlRepository) -> None:
