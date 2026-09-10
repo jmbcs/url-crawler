@@ -26,8 +26,7 @@ Four readings were ambiguous, so the calls are stated up front.
 
 ## Architecture
 
-<details>
-<summary>Diagram: one core, two entry points, Postgres only on the service side</summary>
+One crawl core, two ways to reach it, and the two never reach each other.
 
 ```mermaid
 flowchart TD
@@ -68,9 +67,16 @@ flowchart TD
     style core fill:none,stroke:#8b949e,stroke-dasharray:5 5
 ```
 
-Blue is an entry point, purple is crawl logic, orange talks to the network, green writes output,
-grey stores. The CLI never touches Postgres, and the core never knows which entry point called it.
-</details>
+- **Colour is the role.** Blue starts a crawl, purple is crawl logic, orange talks to the network,
+  green writes output, grey stores.
+- **The dashed box is the core**, and it never learns who called it. That is why the CLI and the
+  worker run the same crawl rather than two implementations of one.
+- **The CLI never touches Postgres.** It crawls and streams to stdout, so there is nothing to start
+  and nothing to install beyond two libraries.
+- **The API never crawls.** It writes a row, reads rows back, and a worker claims the row and does
+  the work. Postgres is the only thing the two processes share.
+- **The reporter is the seam** that makes both true: text or JSONL to stdout for the CLI, batched
+  inserts for the worker, one interface either way.
 
 Module tables, the worker loop, the data model and the claim, heartbeat and reaper design:
 [docs/architecture.md](docs/architecture.md).
