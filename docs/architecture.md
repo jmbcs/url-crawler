@@ -127,15 +127,17 @@ says why the CLI has no such guard.
 
 ## Data model
 
-| Table | Columns |
-| --- | --- |
-| `crawl` | `id` uuid PK, `seed`, `config` jsonb, `state`, `created_at`, `started_at`, `finished_at`, `heartbeat_at`, `worker_id`, `attempts`, `cancel_requested`, `stats` jsonb, `error`. Index on `(state, created_at)`. |
-| `page` | PK `(crawl_id, seq)` with `crawl_id` cascading from `crawl`, plus `url`, `status`, `error_kind`, `error_message`, `links` jsonb, `fetched_at`. |
+Two tables. [data-model.md](data-model.md) documents every column, the `stats` shape, the state
+lifecycle and how to query it.
 
-`state` is one of `queued`, `running`, `finished`, `failed`, `aborted`. `seq` is one-based and
-gap-free. A page's links are a JSON array, not a join table, so a consumer always reads whole pages.
-Migrations are generated only, via `make migration m="..."`; a test checks for ORM drift and
-round-trips a downgrade and upgrade.
+| Table | Shape |
+| --- | --- |
+| `crawl` | One row per job: `id` uuid PK, the `seed` and its `config`, the `state` and its timestamps, the lease (`heartbeat_at`, `worker_id`, `attempts`), and the `stats` and `error` it ends with. Index on `(state, created_at)` for the claim. |
+| `page` | One row per URL fetched: PK `(crawl_id, seq)` cascading from `crawl`, plus `url`, `status`, `error_kind`, `error_message`, `links` jsonb, `fetched_at`. |
+
+`seq` is one-based and gap-free. A page's links are a JSON array, not a join table, so a consumer
+always reads whole pages. Migrations are generated only, via `make migration m="..."`; a test checks
+for ORM drift and round-trips a downgrade and upgrade.
 
 ## Claim, heartbeat, reaper
 

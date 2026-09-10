@@ -78,8 +78,9 @@ flowchart TD
 - **The reporter is the seam** that makes both true: text or JSONL to stdout for the CLI, batched
   inserts for the worker, one interface either way.
 
-Module tables, the worker loop, the data model and the claim, heartbeat and reaper design:
-[docs/architecture.md](docs/architecture.md).
+Module tables, the worker loop and the claim, heartbeat and reaper design:
+[docs/architecture.md](docs/architecture.md). Every database column:
+[docs/data-model.md](docs/data-model.md).
 
 ## The CLI
 
@@ -288,7 +289,8 @@ Real captured output, trimmed. The 422 is why these examples use `example.com`, 
 
 | Page | What is in it |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | Features, core modules, the worker loop, the service, the data model, claim and lease |
+| [docs/architecture.md](docs/architecture.md) | Core modules, the worker loop, the service, claim and lease |
+| [docs/data-model.md](docs/data-model.md) | Every database column, the stats shape, the state lifecycle, how to query it |
 | [docs/design-decisions.md](docs/design-decisions.md) | Every decision in full, with the rejected option and the reversal trigger |
 | [docs/cli.md](docs/cli.md) | Flags, exit codes, text and JSONL output, the banner, Docker and pip |
 | [docs/service.md](docs/service.md) | Crawl service: running it, the API, configuration, what it does not do yet |
