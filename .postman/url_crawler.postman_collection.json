@@ -1,0 +1,539 @@
+{
+  "info": {
+    "name": "url-crawler",
+    "description": "The url-crawler job service. Start it with `docker compose up --build -d`, then run Submit a crawl first: it stores the new id in the crawlId variable that every other request uses. Every saved example below is a real response, captured against https://crawler-test.com.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/healthz",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "healthz"
+          ]
+        },
+        "description": "200 once the API has run a SELECT 1 against Postgres. 503 when the database is unreachable."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"status\": \"ok\"\n}"
+        },
+        {
+          "name": "503 database unavailable",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/healthz",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "healthz"
+              ]
+            }
+          },
+          "status": "Service Unavailable",
+          "code": 503,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"detail\": \"database unavailable\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Submit a crawl",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/crawls",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"seed\": \"https://crawler-test.com\",\n  \"max_pages\": 25,\n  \"concurrency\": 5\n}"
+        },
+        "description": "Queues a crawl and returns 202 with a Location header. The crawl runs on a worker, not in the API. The test script stores the id in the collection variable crawlId, so every request below works with no copying."
+      },
+      "response": [
+        {
+          "name": "202 Accepted",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/crawls",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seed\": \"https://crawler-test.com\",\n  \"max_pages\": 25,\n  \"concurrency\": 5\n}"
+            }
+          },
+          "status": "Accepted",
+          "code": 202,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"id\": \"f77a4481-05c4-4e34-a41f-487a3ae70dee\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"queued\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-10T11:37:22.316256Z\",\n  \"started_at\": null,\n  \"finished_at\": null,\n  \"attempts\": 0,\n  \"cancel_requested\": false,\n  \"stats\": null,\n  \"error\": null\n}"
+        }
+      ],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Save the new crawl id so every other request can use {{crawlId}}.",
+              "if (pm.response.code === 202) {",
+              "    pm.collectionVariables.set('crawlId', pm.response.json().id);",
+              "}",
+              "pm.test('queued', () => pm.response.to.have.status(202));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Submit a crawl, refused seed",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/crawls",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"seed\": \"http://169.254.169.254/latest/meta-data/\"\n}"
+        },
+        "description": "The service resolves the seed host and refuses anything on a private, loopback or link-local address, so an unauthenticated caller cannot use it to reach inside the network. The CLI has no such guard, because your own terminal already reaches those."
+      },
+      "response": [
+        {
+          "name": "422 private address",
+          "originalRequest": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/crawls",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"seed\": \"http://169.254.169.254/latest/meta-data/\"\n}"
+            }
+          },
+          "status": "Unprocessable Entity",
+          "code": 422,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"detail\": {\n    \"seed\": \"169.254.169.254 is a private address\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "List crawls",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls?limit=2&state=finished",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "2"
+            },
+            {
+              "key": "state",
+              "value": "finished"
+            }
+          ]
+        },
+        "description": "Newest first. Filter with state, one of queued, running, finished, failed or aborted. limit is 1 to 200 and defaults to 50."
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/crawls?limit=2&state=finished",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "2"
+                },
+                {
+                  "key": "state",
+                  "value": "finished"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"f77a4481-05c4-4e34-a41f-487a3ae70dee\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-10T11:37:22.316256Z\",\n      \"started_at\": \"2026-09-10T11:37:22.562254Z\",\n      \"finished_at\": \"2026-09-10T11:37:27.502166Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 4.881,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    },\n    {\n      \"id\": \"fc7e9a7c-35fa-4f91-ad3e-47f16233c337\",\n      \"seed\": \"https://example.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 5,\n        \"concurrency\": 10,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-09T16:22:29.688262Z\",\n      \"started_at\": \"2026-09-09T16:22:30.591844Z\",\n      \"finished_at\": \"2026-09-09T16:22:30.998959Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 1,\n        \"redirects\": 0,\n        \"links_found\": 1,\n        \"pages_total\": 1,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 0.268,\n        \"duplicates_dropped\": 0,\n        \"pages_without_links\": 0\n      },\n      \"error\": null\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get one crawl",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls/{{crawlId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls",
+            "{{crawlId}}"
+          ]
+        },
+        "description": "State plus the stats that say what the run did. Poll this, or stream the same body from the events endpoint."
+      },
+      "response": [
+        {
+          "name": "200 finished",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/crawls/{{crawlId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls",
+                "{{crawlId}}"
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"id\": \"f77a4481-05c4-4e34-a41f-487a3ae70dee\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-10T11:37:22.316256Z\",\n  \"started_at\": \"2026-09-10T11:37:22.562254Z\",\n  \"finished_at\": \"2026-09-10T11:37:27.502166Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 4.881,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}"
+        },
+        {
+          "name": "404 unknown id",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/crawls/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            }
+          },
+          "status": "Not Found",
+          "code": 404,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"detail\": \"crawl not found\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Read the pages",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls/{{crawlId}}/pages?limit=3",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls",
+            "{{crawlId}}",
+            "pages"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "3"
+            }
+          ]
+        },
+        "description": "One object per page fetched, readable while the crawl is still running. Keyset pagination: pass the last seq you saw as after. next_after is null once you have read everything written so far, which is not the same as the crawl being over."
+      },
+      "response": [
+        {
+          "name": "200 first batch",
+          "originalRequest": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/crawls/{{crawlId}}/pages?limit=3",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls",
+                "{{crawlId}}",
+                "pages"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "3"
+                }
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"items\": [\n    {\n      \"seq\": 1,\n      \"url\": \"https://crawler-test.com/\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop\",\n        \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_h1\",\n        \"... 407 more\"\n      ],\n      \"fetched_at\": \"2026-09-10T11:37:24.641429Z\"\n    },\n    {\n      \"seq\": 2,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-10T11:37:24.995216Z\"\n    },\n    {\n      \"seq\": 3,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-10T11:37:25.277252Z\"\n    }\n  ],\n  \"next_after\": 3\n}"
+        }
+      ]
+    },
+    {
+      "name": "Read the next batch",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls/{{crawlId}}/pages?after=3&limit=3",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls",
+            "{{crawlId}}",
+            "pages"
+          ],
+          "query": [
+            {
+              "key": "after",
+              "value": "3"
+            },
+            {
+              "key": "limit",
+              "value": "3"
+            }
+          ]
+        },
+        "description": "The same call with after set to the previous next_after. Postman does not chain these for you, so set after by hand or script it."
+      },
+      "response": []
+    },
+    {
+      "name": "Stream progress",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls/{{crawlId}}/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls",
+            "{{crawlId}}",
+            "events"
+          ]
+        },
+        "description": "Server-sent events: one stats frame every two seconds carrying the same body as GET /crawls/{id}, then one end frame at a terminal state. Postman shows the raw stream."
+      },
+      "response": []
+    },
+    {
+      "name": "Cancel a crawl",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/crawls/{{crawlId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "crawls",
+            "{{crawlId}}"
+          ]
+        },
+        "description": "A request, not a kill. A queued crawl aborts outright. A running one stops at its worker's next heartbeat and keeps the pages it already wrote. A finished one is returned unchanged."
+      },
+      "response": [
+        {
+          "name": "202 aborted",
+          "originalRequest": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/crawls/{{crawlId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "crawls",
+                "{{crawlId}}"
+              ]
+            }
+          },
+          "status": "Accepted",
+          "code": 202,
+          "_postman_previewlanguage": "json",
+          "header": [
+            {
+              "key": "Content-Type",
+              "value": "application/json"
+            }
+          ],
+          "cookie": [],
+          "body": "{\n  \"id\": \"be717723-1297-4ba6-8356-382ce5b06865\",\n  \"state\": \"aborted\"\n}"
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "crawlId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

@@ -15,3 +15,4 @@ Dockerfile
 .dockerignore
 .pre-commit-config.yaml
 Makefile
+.postman

@@ -57,8 +57,10 @@ erDiagram
 Indexes: primary key on `id`, plus `ix_crawl_state_created` on `(state, created_at)`, which is the
 index the claim query uses to find the oldest queued row.
 
-<details>
-<summary>The <code>stats</code> shape, and what each counter means</summary>
+### What `stats` holds
+
+The run summary, written with every heartbeat and again at the end, so a running crawl already
+carries partial counts. It is the same object the CLI prints as the last line of `--format jsonl`.
 
 ```json
 {"pages_ok": 4, "pages_failed": {"http_status": 1}, "pages_without_links": 0, "redirects": 0,
@@ -78,7 +80,26 @@ index the claim query uses to find the oldest queued row.
 | `pages_total` | `pages_ok` plus every failure. What `--max-pages` caps. |
 | `elapsed_seconds` | Wall time, rounded to milliseconds. |
 
-</details>
+Two of these catch people out. `pages_ok` counts redirects, because a redirect is reported as a
+page. And `links_found` counts only links extracted from HTML, so a redirect's target is printed
+under its page but not added to the total.
+
+### What `config` holds
+
+The settings the crawl runs with, exactly as posted and validated. A worker rebuilds a `CrawlConfig`
+from this object when it claims the row, so the record is enough to reproduce the run.
+
+```json
+{"timeout": 10.0, "max_bytes": 5000000, "max_pages": 25, "concurrency": 5, "respect_robots": true}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `timeout` | Seconds allowed between chunks of one response. Capped at 60 by the API. |
+| `max_bytes` | Largest body accepted, compressed or decoded. Capped at 100,000,000 by the API. |
+| `max_pages` | Stop after this many pages. Null means no cap. |
+| `concurrency` | Worker tasks inside the crawl, 1 to 50. Also the connection pool size. |
+| `respect_robots` | False skips robots.txt entirely, the service equivalent of `--ignore-robots`. |
 
 ## `page`, one row per URL fetched
 

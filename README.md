@@ -139,6 +139,9 @@ $ curl -sS localhost:8000/healthz
 ```
 
 The API answered and its `SELECT 1` reached Postgres. Swagger UI is at `/docs`, ReDoc at `/redoc`.
+Prefer a client? Import
+[`.postman/url_crawler.postman_collection.json`](.postman/url_crawler.postman_collection.json):
+every endpoint, each with a real saved response, and a `crawlId` variable filled in for you.
 
 **3. Submit a crawl.**
 

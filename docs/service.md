@@ -52,6 +52,10 @@ make test-service   # 84 tests against crawler_test; the suite migrates it itsel
   says whether it finished. Paging is by keyset, not `OFFSET`, so rows arriving mid-crawl never
   shift a page you already read.
 - Swagger UI (`/docs`), ReDoc (`/redoc`) and `/openapi.json` all answer once the API is up.
+- [`.postman/url_crawler.postman_collection.json`](../.postman/url_crawler.postman_collection.json)
+  imports every endpoint into Postman, with a saved example response for each one captured from a
+  real crawl. Run "Submit a crawl" first: it stores the new id in a `crawlId` variable that the
+  other requests use, so nothing needs copying by hand.
 
 ## Configuration
 
