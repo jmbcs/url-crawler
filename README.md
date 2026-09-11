@@ -66,8 +66,6 @@ Module tables, the worker loop and the claim, heartbeat and reaper design:
 [docs/architecture.md](docs/architecture.md). Every database column:
 [docs/data-model.md](docs/data-model.md).
 
-<a id="the-cli"></a>
-
 ## The CLI: what the exercise asked for
 
 **1. Install.** Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/); `uv sync` installs from the

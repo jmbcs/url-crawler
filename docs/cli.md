@@ -2,8 +2,9 @@
 
 Every flag, every exit code, both output formats, and what the CLI writes to stderr.
 
-Getting started is the [CLI walkthrough](../README.md#the-cli) in the README: `uv sync`, then
-`uv run url-crawler <url>`. This page is the reference behind it and does not repeat it.
+Getting started is the [CLI walkthrough](../README.md#the-cli-what-the-exercise-asked-for) in the
+README: `uv sync`, then `uv run url-crawler <url>`. This page is the reference behind it and does
+not repeat it.
 
 ## Running it
 
