@@ -3,9 +3,10 @@
 An optional API and worker that turn a crawl into a background job. For operators running it, not
 readers of the crawler's core code.
 
-Getting started is the [service walkthrough](../README.md#the-crawl-service) in the README, six
-steps from `docker compose up --build -d` to `docker compose down`. This page is the reference
-behind it and does not repeat it.
+Getting started is the
+[service walkthrough](../README.md#the-crawl-service-an-optional-extra-beyond-the-brief) in the
+README, six steps from `docker compose up --build -d` to `docker compose down`. This page is the
+reference behind it and does not repeat it.
 
 `POST /crawls` queues a crawl, a worker claims it from Postgres and runs the same `Crawler` the CLI
 runs, and pages are readable by cursor while the crawl is still going. The API never crawls and the
@@ -56,6 +57,34 @@ make test-service   # 84 tests against crawler_test; the suite migrates it itsel
   imports every endpoint into Postman, with a saved example response for each one captured from a
   real crawl. Run "Submit a crawl" first: it stores the new id in a `crawlId` variable that the
   other requests use, so nothing needs copying by hand.
+
+## Worked examples
+
+Real captured output, trimmed. These are the endpoints the README walkthrough skips, plus a seed
+the service refuses.
+
+```bash
+$ curl -sS 'localhost:8000/crawls?limit=2&state=finished'
+{"items": [{"id": "fc7e9a7c-35fa-4f91-ad3e-47f16233c337", "seed": "https://example.com/",
+            "state": "finished", "attempts": 1, "…": "the GET /crawls/{id} body, per match"}]}
+
+$ curl -sSN localhost:8000/crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337/events
+event: stats
+data: {"id":"fc7e9a7c-35fa-4f91-ad3e-47f16233c337","state":"finished","attempts":1, …}
+
+event: end
+data: {}
+
+$ curl -sS -X DELETE localhost:8000/crawls/9c348a7f-5ad9-468e-af14-c71c75d21e2d
+{"id": "9c348a7f-5ad9-468e-af14-c71c75d21e2d", "state": "aborted"}
+
+$ curl -sS -X POST localhost:8000/crawls -H 'content-type: application/json' \
+    -d '{"seed": "http://localhost:8000"}'
+{"detail": {"seed": "localhost is a local hostname"}}
+```
+
+That last 422 comes from [the seed host guard](#the-seed-host-guard), which is why every example
+here uses `example.com` rather than a local address.
 
 ## Configuration
 
