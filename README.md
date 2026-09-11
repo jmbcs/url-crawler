@@ -4,25 +4,9 @@ Crawl every page behind one URL and print each page with the links found on it. 
 one host: no other domains, no subdomains. Two entry points sit over one crawl core, and neither
 imports the other.
 
-- **[The CLI](#the-cli)** streams pages to stdout as each one completes. Read that section and you
-  have the whole tool.
-- **[The crawl service](#the-crawl-service)** runs the same crawl as a background job behind an HTTP
-  API. Optional pip extra, separate docs, skippable for a CLI review.
-
-## How the brief was read
-
-Four readings were ambiguous, so the calls are stated up front.
-
-- **Scope restricts what is followed, not what is printed.** An off-host or subdomain link prints
-  under the page that contained it, and is never requested.
-- **"URLs found on a page" means anchor hyperlinks**, `a[href]` and `area[href]`, not `img`,
-  `script` or `link` subresources.
-- **Only http(s) anchors are output.** Normalization drops `mailto:`, `tel:`, `javascript:` and
-  `data:`, so they are neither printed nor followed.
-- **Per-page output is deduplicated in document order.** A menu repeated in header and footer prints
-  once; links are not sorted, because document order is already deterministic.
-- **A redirect is a page, not a hop.** The client never follows one; a 301/302/303/307/308 reports
-  as a page whose single link is its `Location`.
+[The CLI](#the-cli-what-the-exercise-asked-for) is the exercise and streams to stdout; [the crawl
+service](#the-crawl-service-an-optional-extra-beyond-the-brief) runs the same crawl as a background
+job behind an HTTP API.
 
 ## Architecture
 
@@ -82,7 +66,9 @@ Module tables, the worker loop and the claim, heartbeat and reaper design:
 [docs/architecture.md](docs/architecture.md). Every database column:
 [docs/data-model.md](docs/data-model.md).
 
-## The CLI
+<a id="the-cli"></a>
+
+## The CLI: what the exercise asked for
 
 **1. Install.** Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/); `uv sync` installs from the
 committed `uv.lock`, so the versions are the tested ones.
@@ -116,10 +102,10 @@ Off-host links print but are never fetched. Logs and the summary go to stderr, s
 **4. Turn the knobs.** `--format jsonl` emits one object per page plus a summary object. The
 [flag table](docs/cli.md#flags) and the [exit codes](docs/cli.md#exit-codes) have the rest.
 
-## The crawl service
+## The crawl service: an optional extra beyond the brief
 
-Optional, and skippable for a CLI review. Six steps from nothing to results and back to nothing.
-Full reference: [docs/service.md](docs/service.md).
+Six steps from nothing to results and back to nothing. Full reference:
+[docs/service.md](docs/service.md).
 
 **1. Start the stack.**
 
@@ -203,31 +189,23 @@ docker compose up -d --scale worker=3        # or run more workers: nothing coor
 | `DELETE /crawls/{id}` | 202. A request, not a kill: `queued` aborts outright, `running` stops at its worker's next heartbeat with partial pages kept, terminal comes back unchanged. |
 | `GET /healthz` | 200 after a `SELECT 1`; 503 when Postgres is unreachable. |
 
-<details>
-<summary>Worked examples: the endpoints the walkthrough skips, plus a refused seed</summary>
+Worked examples for the endpoints these six steps skip, plus a refused seed:
+[docs/service.md](docs/service.md#worked-examples).
 
-```bash
-$ curl -sS 'localhost:8000/crawls?limit=2&state=finished'
-{"items": [{"id": "fc7e9a7c-35fa-4f91-ad3e-47f16233c337", "seed": "https://example.com/",
-            "state": "finished", "attempts": 1, "…": "the step 4 body, per match"}]}
+## Ambiguities in the brief, and the call made on each
 
-$ curl -sSN localhost:8000/crawls/fc7e9a7c-35fa-4f91-ad3e-47f16233c337/events
-event: stats
-data: {"id":"fc7e9a7c-35fa-4f91-ad3e-47f16233c337","state":"finished","attempts":1, …}
+Five points could have been read the other way, so each call is stated.
 
-event: end
-data: {}
-
-$ curl -sS -X DELETE localhost:8000/crawls/9c348a7f-5ad9-468e-af14-c71c75d21e2d
-{"id": "9c348a7f-5ad9-468e-af14-c71c75d21e2d", "state": "aborted"}
-
-$ curl -sS -X POST localhost:8000/crawls -H 'content-type: application/json' \
-    -d '{"seed": "http://localhost:8000"}'
-{"detail": {"seed": "localhost is a local hostname"}}
-```
-
-Real captured output, trimmed. The 422 is why these examples use `example.com`, not a local address.
-</details>
+- **Scope restricts what is followed, not what is printed.** An off-host or subdomain link prints
+  under the page that contained it, and is never requested.
+- **"URLs found on a page" means anchor hyperlinks**, `a[href]` and `area[href]`, not `img`,
+  `script` or `link` subresources.
+- **Only http(s) anchors are output.** Normalization drops `mailto:`, `tel:`, `javascript:` and
+  `data:`, so they are neither printed nor followed.
+- **Per-page output is deduplicated in document order.** A menu repeated in header and footer prints
+  once; links are not sorted, because document order is already deterministic.
+- **A redirect is a page, not a hop.** The client never follows one; a 301/302/303/307/308 reports
+  as a page whose single link is its `Location`.
 
 ## Noteworthy
 
@@ -240,8 +218,6 @@ Real captured output, trimmed. The 422 is why these examples use `example.com`, 
 - **Hostile input is bounded.** Credentials are stripped before a URL is queued or printed, a URL
   carrying a control byte is refused, and bodies stream behind a content-type gate and a size cap
   that survives a gzip bomb.
-- **The service guards its seed host, the CLI does not:** an API borrows its worker's network, a
-  terminal borrows nothing ([docs/service.md](docs/service.md)).
 - **Exit codes mean something.** 0 finished, 2 usage, 3 unusable seed, 4 failure fuse, 130
   interrupted with partial output flushed ([table](docs/cli.md#exit-codes)).
 - **Two runtime dependencies and no crawling framework.** The CLI needs `httpx` and `selectolax`
@@ -254,8 +230,7 @@ Real captured output, trimmed. The 422 is why these examples use `example.com`, 
 
 ## Design decisions
 
-<details>
-<summary>Fifteen calls, each naming the option rejected and what would reverse it</summary>
+Fifteen calls, each naming the option rejected and what would reverse it.
 
 | Decision | Why (one line) |
 | --- | --- |
@@ -274,7 +249,6 @@ Real captured output, trimmed. The 422 is why these examples use `example.com`, 
 | [Standard library logging and a stats dataclass](docs/design-decisions.md#standard-library-logging-and-a-stats-dataclass) | stdout stays clean, and the counters outlive a cancelled task. |
 | [One generic parser, no Strategy or Factory](docs/design-decisions.md#one-generic-parser-no-strategy-or-factory) | The seed is arbitrary, so there is no dispatch key at design time. |
 | [Playwright and Scrapy](docs/design-decisions.md#playwright-and-scrapy) | Both banned by the exercise, and named because a reviewer will wonder. |
-</details>
 
 ## Tooling and AI disclosure
 
@@ -296,7 +270,7 @@ Real captured output, trimmed. The 422 is why these examples use `example.com`, 
 | [docs/data-model.md](docs/data-model.md) | Every database column, the stats shape, the state lifecycle, how to query it |
 | [docs/design-decisions.md](docs/design-decisions.md) | Every decision in full, with the rejected option and the reversal trigger |
 | [docs/cli.md](docs/cli.md) | Flags, exit codes, text and JSONL output, the banner, Docker and pip |
-| [docs/service.md](docs/service.md) | Crawl service: running it, the API, configuration, what it does not do yet |
+| [docs/service.md](docs/service.md) | Crawl service: running it, the API, worked examples, configuration, gaps |
 | [docs/performance.md](docs/performance.md) | Patterns used for speed, the benchmark and its method, the caveats |
 | [docs/testing.md](docs/testing.md) | Test layers, how to run each, the fake site, CI, lint and types |
 | [docs/extending.md](docs/extending.md) | Multi-domain crawling, why a CLI stops fitting, ranked future work |
