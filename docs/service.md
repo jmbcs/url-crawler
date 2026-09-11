@@ -54,9 +54,13 @@ make test-service   # 84 tests against crawler_test; the suite migrates it itsel
   shift a page you already read.
 - Swagger UI (`/docs`), ReDoc (`/redoc`) and `/openapi.json` all answer once the API is up.
 - [`.postman/url_crawler.postman_collection.json`](../.postman/url_crawler.postman_collection.json)
-  imports every endpoint into Postman, with a saved example response for each one captured from a
-  real crawl. Run "Submit a crawl" first: it stores the new id in a `crawlId` variable that the
-  other requests use, so nothing needs copying by hand.
+  imports every endpoint into Postman or Insomnia, each with a saved example response captured from
+  a real crawl of `crawler-test.com`.
+  - Run "Submit a crawl" first. It writes the new id into `crawlId`, and reading the first page of
+    results writes the cursor into `afterSeq`, so nothing needs copying by hand.
+  - Eight collection variables carry every tunable value: `baseUrl`, `crawlId`, `seed`, `maxPages`,
+    `concurrency`, `pageLimit`, `afterSeq` and `privateSeed`. Edit them in one place rather than in
+    each request. Insomnia imports them as a base environment but drops their descriptions.
 
 ## Worked examples
 
