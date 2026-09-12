@@ -19,10 +19,11 @@
             "healthz"
           ]
         },
-        "description": "200 once the API has run a SELECT 1 against Postgres. 503 when the database is unreachable."
+        "description": "200 once the API has run a SELECT 1 against Postgres. 503 when the database is unreachable.\n\n---\n\n### Example responses, captured from a live run\n\n**200 OK**\n\n```json\n{\n  \"status\": \"ok\"\n}\n```\n\n**503 database unavailable**\n\n```json\n{\n  \"detail\": \"database unavailable\"\n}\n```"
       },
       "response": [
         {
+          "id": "f1d8c7ee-dbe1-503a-82fd-d6fe17cbdac5",
           "name": "200 OK",
           "originalRequest": {
             "method": "GET",
@@ -35,7 +36,8 @@
               "path": [
                 "healthz"
               ]
-            }
+            },
+            "description": "200 once the API has run a SELECT 1 against Postgres. 503 when the database is unreachable.\n\n---\n\n### Example responses, captured from a live run\n\n**200 OK**\n\n```json\n{\n  \"status\": \"ok\"\n}\n```\n\n**503 database unavailable**\n\n```json\n{\n  \"detail\": \"database unavailable\"\n}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -101,10 +103,11 @@
           "mode": "raw",
           "raw": "{\n  \"seed\": \"{{seed}}\",\n  \"max_pages\": {{maxPages}},\n  \"concurrency\": {{concurrency}}\n}"
         },
-        "description": "Queues a crawl and returns 202 with a Location header. The crawl runs on a worker, not in the API. Edit seed, maxPages and concurrency in the Variables tab; the two numbers are unquoted in the body because the API rejects them as strings. The test script stores the new id in crawlId, so every request below works with no copying."
+        "description": "Queues a crawl and returns 202 with a Location header. The crawl runs on a worker, not in the API. Edit seed, maxPages and concurrency in the Variables tab; the two numbers are unquoted in the body because the API rejects them as strings. The test script stores the new id in crawlId, so every request below works with no copying.\n\n---\n\n### Example responses, captured from a live run\n\n**202 Accepted**\n\n```json\n{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"queued\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": null,\n  \"finished_at\": null,\n  \"attempts\": 0,\n  \"cancel_requested\": false,\n  \"stats\": null,\n  \"error\": null\n}\n```"
       },
       "response": [
         {
+          "id": "907b379d-4fd8-5cdf-a8a9-d6ea43d8da88",
           "name": "202 Accepted",
           "originalRequest": {
             "method": "POST",
@@ -126,7 +129,8 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"seed\": \"{{seed}}\",\n  \"max_pages\": {{maxPages}},\n  \"concurrency\": {{concurrency}}\n}"
-            }
+            },
+            "description": "Queues a crawl and returns 202 with a Location header. The crawl runs on a worker, not in the API. Edit seed, maxPages and concurrency in the Variables tab; the two numbers are unquoted in the body because the API rejects them as strings. The test script stores the new id in crawlId, so every request below works with no copying.\n\n---\n\n### Example responses, captured from a live run\n\n**202 Accepted**\n\n```json\n{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"queued\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": null,\n  \"finished_at\": null,\n  \"attempts\": 0,\n  \"cancel_requested\": false,\n  \"stats\": null,\n  \"error\": null\n}\n```"
           },
           "status": "Accepted",
           "code": 202,
@@ -138,7 +142,7 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"id\": \"2e86cfce-4176-4135-8fcb-8e4db990945e\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"queued\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-11T18:49:03.428737Z\",\n  \"started_at\": null,\n  \"finished_at\": null,\n  \"attempts\": 0,\n  \"cancel_requested\": false,\n  \"stats\": null,\n  \"error\": null\n}"
+          "body": "{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"queued\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": null,\n  \"finished_at\": null,\n  \"attempts\": 0,\n  \"cancel_requested\": false,\n  \"stats\": null,\n  \"error\": null\n}"
         }
       ],
       "event": [
@@ -180,10 +184,11 @@
           "mode": "raw",
           "raw": "{\n  \"seed\": \"{{privateSeed}}\"\n}"
         },
-        "description": "The service resolves the seed host and refuses anything on a private, loopback or link-local address, so an unauthenticated caller cannot use it to reach inside the network. privateSeed holds the address to try. The CLI has no such guard, because your own terminal already reaches those."
+        "description": "The service resolves the seed host and refuses anything on a private, loopback or link-local address, so an unauthenticated caller cannot use it to reach inside the network. privateSeed holds the address to try. The CLI has no such guard, because your own terminal already reaches those.\n\n---\n\n### Example responses, captured from a live run\n\n**422 private address**\n\n```json\n{\n  \"detail\": {\n    \"seed\": \"169.254.169.254 is a private address\"\n  }\n}\n```"
       },
       "response": [
         {
+          "id": "38062a84-0909-563f-9feb-486e623779f6",
           "name": "422 private address",
           "originalRequest": {
             "method": "POST",
@@ -205,7 +210,8 @@
             "body": {
               "mode": "raw",
               "raw": "{\n  \"seed\": \"{{privateSeed}}\"\n}"
-            }
+            },
+            "description": "The service resolves the seed host and refuses anything on a private, loopback or link-local address, so an unauthenticated caller cannot use it to reach inside the network. privateSeed holds the address to try. The CLI has no such guard, because your own terminal already reaches those.\n\n---\n\n### Example responses, captured from a live run\n\n**422 private address**\n\n```json\n{\n  \"detail\": {\n    \"seed\": \"169.254.169.254 is a private address\"\n  }\n}\n```"
           },
           "status": "Unprocessable Entity",
           "code": 422,
@@ -245,10 +251,11 @@
             }
           ]
         },
-        "description": "Newest first. Filter with state, one of queued, running, finished, failed or aborted. limit is 1 to 200 and defaults to 50."
+        "description": "Newest first. Filter with state, one of queued, running, finished, failed or aborted. limit is 1 to 200 and defaults to 50.\n\n---\n\n### Example responses, captured from a live run\n\n**200 OK**\n\n```json\n{\n  \"items\": [\n    {\n      \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n      \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n      \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.276,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    },\n    {\n      \"id\": \"8bac77c3-f657-435b-a704-bf64207c2548\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:40:51.537056Z\",\n      \"started_at\": \"2026-09-12T17:40:52.368760Z\",\n      \"finished_at\": \"2026-09-12T17:40:56.036301Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.473,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    }\n  ]\n}\n```"
       },
       "response": [
         {
+          "id": "c17aae37-97aa-5def-a55c-a07d6bcadfc2",
           "name": "200 OK",
           "originalRequest": {
             "method": "GET",
@@ -271,7 +278,8 @@
                   "value": "finished"
                 }
               ]
-            }
+            },
+            "description": "Newest first. Filter with state, one of queued, running, finished, failed or aborted. limit is 1 to 200 and defaults to 50.\n\n---\n\n### Example responses, captured from a live run\n\n**200 OK**\n\n```json\n{\n  \"items\": [\n    {\n      \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n      \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n      \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.276,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    },\n    {\n      \"id\": \"8bac77c3-f657-435b-a704-bf64207c2548\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:40:51.537056Z\",\n      \"started_at\": \"2026-09-12T17:40:52.368760Z\",\n      \"finished_at\": \"2026-09-12T17:40:56.036301Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.473,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    }\n  ]\n}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -283,7 +291,7 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"items\": [\n    {\n      \"id\": \"2e86cfce-4176-4135-8fcb-8e4db990945e\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-11T18:49:03.428737Z\",\n      \"started_at\": \"2026-09-11T18:49:04.264390Z\",\n      \"finished_at\": \"2026-09-11T18:49:05.676796Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.37,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    },\n    {\n      \"id\": \"9869ee95-1ea0-4b5d-a041-700f6e9c1c26\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-10T11:47:10.648487Z\",\n      \"started_at\": \"2026-09-10T11:47:10.759579Z\",\n      \"finished_at\": \"2026-09-10T11:47:15.777877Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 4.99,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    }\n  ]\n}"
+          "body": "{\n  \"items\": [\n    {\n      \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n      \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n      \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.276,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    },\n    {\n      \"id\": \"8bac77c3-f657-435b-a704-bf64207c2548\",\n      \"seed\": \"https://crawler-test.com/\",\n      \"state\": \"finished\",\n      \"config\": {\n        \"timeout\": 10.0,\n        \"max_bytes\": 5000000,\n        \"max_pages\": 25,\n        \"concurrency\": 5,\n        \"respect_robots\": true\n      },\n      \"created_at\": \"2026-09-12T17:40:51.537056Z\",\n      \"started_at\": \"2026-09-12T17:40:52.368760Z\",\n      \"finished_at\": \"2026-09-12T17:40:56.036301Z\",\n      \"attempts\": 1,\n      \"cancel_requested\": false,\n      \"stats\": {\n        \"retries\": 0,\n        \"pages_ok\": 25,\n        \"redirects\": 0,\n        \"links_found\": 431,\n        \"pages_total\": 25,\n        \"pages_failed\": {},\n        \"elapsed_seconds\": 1.473,\n        \"duplicates_dropped\": 21,\n        \"pages_without_links\": 5\n      },\n      \"error\": null\n    }\n  ]\n}"
         }
       ]
     },
@@ -302,10 +310,11 @@
             "{{crawlId}}"
           ]
         },
-        "description": "State plus the stats that say what the run did. Poll this, or stream the same body from the events endpoint."
+        "description": "State plus the stats that say what the run did. Poll this, or stream the same body from the events endpoint.\n\n---\n\n### Example responses, captured from a live run\n\n**200 finished**\n\n```json\n{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n  \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 1.276,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}\n```\n\n**404 unknown id**\n\n```json\n{\n  \"detail\": \"crawl not found\"\n}\n```"
       },
       "response": [
         {
+          "id": "bb9b6d23-1fa5-53f4-8f3b-24eba49a649d",
           "name": "200 finished",
           "originalRequest": {
             "method": "GET",
@@ -319,7 +328,8 @@
                 "crawls",
                 "{{crawlId}}"
               ]
-            }
+            },
+            "description": "State plus the stats that say what the run did. Poll this, or stream the same body from the events endpoint.\n\n---\n\n### Example responses, captured from a live run\n\n**200 finished**\n\n```json\n{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n  \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 1.276,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}\n```\n\n**404 unknown id**\n\n```json\n{\n  \"detail\": \"crawl not found\"\n}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -331,23 +341,25 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"id\": \"2e86cfce-4176-4135-8fcb-8e4db990945e\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-11T18:49:03.428737Z\",\n  \"started_at\": \"2026-09-11T18:49:04.264390Z\",\n  \"finished_at\": \"2026-09-11T18:49:05.676796Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 1.37,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}"
+          "body": "{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n  \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 1.276,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}"
         },
         {
+          "id": "82f060db-8635-5c41-ade8-88b4ca0aefaa",
           "name": "404 unknown id",
           "originalRequest": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/crawls/00000000-0000-0000-0000-000000000000",
+              "raw": "{{baseUrl}}/crawls/{{crawlId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "crawls",
-                "00000000-0000-0000-0000-000000000000"
+                "{{crawlId}}"
               ]
-            }
+            },
+            "description": "State plus the stats that say what the run did. Poll this, or stream the same body from the events endpoint.\n\n---\n\n### Example responses, captured from a live run\n\n**200 finished**\n\n```json\n{\n  \"id\": \"47833935-0ac8-4abc-b8c7-bc31e4849bd5\",\n  \"seed\": \"https://crawler-test.com/\",\n  \"state\": \"finished\",\n  \"config\": {\n    \"timeout\": 10.0,\n    \"max_bytes\": 5000000,\n    \"max_pages\": 25,\n    \"concurrency\": 5,\n    \"respect_robots\": true\n  },\n  \"created_at\": \"2026-09-12T17:41:11.480048Z\",\n  \"started_at\": \"2026-09-12T17:41:12.094534Z\",\n  \"finished_at\": \"2026-09-12T17:41:13.380113Z\",\n  \"attempts\": 1,\n  \"cancel_requested\": false,\n  \"stats\": {\n    \"retries\": 0,\n    \"pages_ok\": 25,\n    \"redirects\": 0,\n    \"links_found\": 431,\n    \"pages_total\": 25,\n    \"pages_failed\": {},\n    \"elapsed_seconds\": 1.276,\n    \"duplicates_dropped\": 21,\n    \"pages_without_links\": 5\n  },\n  \"error\": null\n}\n```\n\n**404 unknown id**\n\n```json\n{\n  \"detail\": \"crawl not found\"\n}\n```"
           },
           "status": "Not Found",
           "code": 404,
@@ -385,10 +397,11 @@
             }
           ]
         },
-        "description": "One object per page fetched, readable while the crawl is still running. pageLimit sets the batch size. Keyset pagination: next_after is null once you have read everything written so far, which is not the same as the crawl being over. The test script copies next_after into afterSeq for the request below."
+        "description": "One object per page fetched, readable while the crawl is still running. pageLimit sets the batch size. Keyset pagination: next_after is null once you have read everything written so far, which is not the same as the crawl being over. The test script copies next_after into afterSeq for the request below.\n\n---\n\n### Example responses, captured from a live run\n\n**200 first batch**\n\n```json\n{\n  \"items\": [\n    {\n      \"seq\": 1,\n      \"url\": \"https://crawler-test.com/\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop\",\n        \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_h1\",\n        \"... 407 more\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.571882Z\"\n    },\n    {\n      \"seq\": 2,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.695055Z\"\n    },\n    {\n      \"seq\": 3,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.807897Z\"\n    }\n  ],\n  \"next_after\": 3\n}\n```"
       },
       "response": [
         {
+          "id": "c458d112-e0ca-5e4b-bd58-20e33e74914f",
           "name": "200 first batch",
           "originalRequest": {
             "method": "GET",
@@ -409,7 +422,8 @@
                   "value": "{{pageLimit}}"
                 }
               ]
-            }
+            },
+            "description": "One object per page fetched, readable while the crawl is still running. pageLimit sets the batch size. Keyset pagination: next_after is null once you have read everything written so far, which is not the same as the crawl being over. The test script copies next_after into afterSeq for the request below.\n\n---\n\n### Example responses, captured from a live run\n\n**200 first batch**\n\n```json\n{\n  \"items\": [\n    {\n      \"seq\": 1,\n      \"url\": \"https://crawler-test.com/\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop\",\n        \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_h1\",\n        \"... 407 more\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.571882Z\"\n    },\n    {\n      \"seq\": 2,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.695055Z\"\n    },\n    {\n      \"seq\": 3,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.807897Z\"\n    }\n  ],\n  \"next_after\": 3\n}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -421,7 +435,7 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"items\": [\n    {\n      \"seq\": 1,\n      \"url\": \"https://crawler-test.com/\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop\",\n        \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_h1\",\n        \"... 407 more\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:04.825290Z\"\n    },\n    {\n      \"seq\": 2,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:04.943578Z\"\n    },\n    {\n      \"seq\": 3,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:05.056521Z\"\n    }\n  ],\n  \"next_after\": 3\n}"
+          "body": "{\n  \"items\": [\n    {\n      \"seq\": 1,\n      \"url\": \"https://crawler-test.com/\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop\",\n        \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_h1\",\n        \"... 407 more\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.571882Z\"\n    },\n    {\n      \"seq\": 2,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.695055Z\"\n    },\n    {\n      \"seq\": 3,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.807897Z\"\n    }\n  ],\n  \"next_after\": 3\n}"
         }
       ],
       "event": [
@@ -467,11 +481,12 @@
             }
           ]
         },
-        "description": "The same call with after set to the previous next_after. Run Read the pages first and its script fills afterSeq, or set afterSeq yourself in the Variables tab."
+        "description": "The same call with after set to the previous next_after. Run Read the pages first and its script fills afterSeq, or set afterSeq yourself in the Variables tab.\n\n---\n\n### Example responses, captured from a live run\n\n**200 after=3**\n\n```json\n{\n  \"items\": [\n    {\n      \"seq\": 4,\n      \"url\": \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.915254Z\"\n    },\n    {\n      \"seq\": 5,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_title\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918214Z\"\n    },\n    {\n      \"seq\": 6,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_wordcount\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918737Z\"\n    }\n  ],\n  \"next_after\": 6\n}\n```"
       },
       "response": [
         {
-          "name": "200 second batch",
+          "id": "2d42b31b-df90-5e48-9043-7c37424b4188",
+          "name": "200 after=3",
           "originalRequest": {
             "method": "GET",
             "header": [],
@@ -495,7 +510,8 @@
                   "value": "{{pageLimit}}"
                 }
               ]
-            }
+            },
+            "description": "The same call with after set to the previous next_after. Run Read the pages first and its script fills afterSeq, or set afterSeq yourself in the Variables tab.\n\n---\n\n### Example responses, captured from a live run\n\n**200 after=3**\n\n```json\n{\n  \"items\": [\n    {\n      \"seq\": 4,\n      \"url\": \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.915254Z\"\n    },\n    {\n      \"seq\": 5,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_title\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918214Z\"\n    },\n    {\n      \"seq\": 6,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_wordcount\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918737Z\"\n    }\n  ],\n  \"next_after\": 6\n}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -507,7 +523,7 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"items\": [\n    {\n      \"seq\": 4,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_wordcount\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:05.161152Z\"\n    },\n    {\n      \"seq\": 5,\n      \"url\": \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:05.161691Z\"\n    },\n    {\n      \"seq\": 6,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_links_out\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\",\n        \"https://crawler-test.com/mobile/separate_desktop_with_different_links_in\"\n      ],\n      \"fetched_at\": \"2026-09-11T18:49:05.165406Z\"\n    }\n  ],\n  \"next_after\": 6\n}"
+          "body": "{\n  \"items\": [\n    {\n      \"seq\": 4,\n      \"url\": \"https://crawler-test.com/mobile/desktop_with_AMP_as_mobile\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.915254Z\"\n    },\n    {\n      \"seq\": 5,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_title\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918214Z\"\n    },\n    {\n      \"seq\": 6,\n      \"url\": \"https://crawler-test.com/mobile/separate_desktop_with_different_wordcount\",\n      \"status\": 200,\n      \"error\": null,\n      \"links\": [\n        \"https://crawler-test.com/\"\n      ],\n      \"fetched_at\": \"2026-09-12T17:41:12.918737Z\"\n    }\n  ],\n  \"next_after\": 6\n}"
         }
       ]
     },
@@ -527,11 +543,12 @@
             "events"
           ]
         },
-        "description": "Server-sent events: one stats frame every two seconds carrying the same body as GET /crawls/{id}, then one end frame at a terminal state. Postman shows the raw stream. The example below is a whole run of a 25 page crawl, queued to finished."
+        "description": "Server-sent events: one stats frame every two seconds carrying the same body as GET /crawls/{id}, then one end frame at a terminal state. Postman shows the raw stream. The example below is a whole run of a 25 page crawl, queued to finished.\n\n---\n\n### Example responses, captured from a live run\n\n**200 event stream**\n\n```text\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"queued\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":null,\"finished_at\":null,\"attempts\":0,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"running\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":null,\"attempts\":1,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"finished\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":\"2026-09-12T17:41:15.695764Z\",\"attempts\":1,\"cancel_requested\":false,\"stats\":{\"retries\":0,\"pages_ok\":25,\"redirects\":0,\"links_found\":431,\"pages_total\":25,\"pages_failed\":{},\"elapsed_seconds\":1.291,\"duplicates_dropped\":21,\"pages_without_links\":5},\"error\":null}\n\nevent: end\ndata: {}\n```"
       },
       "response": [
         {
-          "name": "200 stats frames then end",
+          "id": "163a9fb2-b298-52b9-88a0-90ff21287606",
+          "name": "200 event stream",
           "originalRequest": {
             "method": "GET",
             "header": [],
@@ -545,7 +562,8 @@
                 "{{crawlId}}",
                 "events"
               ]
-            }
+            },
+            "description": "Server-sent events: one stats frame every two seconds carrying the same body as GET /crawls/{id}, then one end frame at a terminal state. Postman shows the raw stream. The example below is a whole run of a 25 page crawl, queued to finished.\n\n---\n\n### Example responses, captured from a live run\n\n**200 event stream**\n\n```text\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"queued\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":null,\"finished_at\":null,\"attempts\":0,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"running\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":null,\"attempts\":1,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"finished\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":\"2026-09-12T17:41:15.695764Z\",\"attempts\":1,\"cancel_requested\":false,\"stats\":{\"retries\":0,\"pages_ok\":25,\"redirects\":0,\"links_found\":431,\"pages_total\":25,\"pages_failed\":{},\"elapsed_seconds\":1.291,\"duplicates_dropped\":21,\"pages_without_links\":5},\"error\":null}\n\nevent: end\ndata: {}\n```"
           },
           "status": "OK",
           "code": 200,
@@ -554,14 +572,10 @@
             {
               "key": "Content-Type",
               "value": "text/event-stream; charset=utf-8"
-            },
-            {
-              "key": "Cache-Control",
-              "value": "no-cache"
             }
           ],
           "cookie": [],
-          "body": "event: stats\ndata: {\"id\":\"2e86cfce-4176-4135-8fcb-8e4db990945e\",\"seed\":\"https://crawler-test.com/\",\"state\":\"queued\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-11T18:49:03.428737Z\",\"started_at\":null,\"finished_at\":null,\"attempts\":0,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"2e86cfce-4176-4135-8fcb-8e4db990945e\",\"seed\":\"https://crawler-test.com/\",\"state\":\"running\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-11T18:49:03.428737Z\",\"started_at\":\"2026-09-11T18:49:04.264390Z\",\"finished_at\":null,\"attempts\":1,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"2e86cfce-4176-4135-8fcb-8e4db990945e\",\"seed\":\"https://crawler-test.com/\",\"state\":\"finished\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-11T18:49:03.428737Z\",\"started_at\":\"2026-09-11T18:49:04.264390Z\",\"finished_at\":\"2026-09-11T18:49:05.676796Z\",\"attempts\":1,\"cancel_requested\":false,\"stats\":{\"retries\":0,\"pages_ok\":25,\"redirects\":0,\"links_found\":431,\"pages_total\":25,\"pages_failed\":{},\"elapsed_seconds\":1.37,\"duplicates_dropped\":21,\"pages_without_links\":5},\"error\":null}\n\nevent: end\ndata: {}\n\n"
+          "body": "event: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"queued\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":null,\"finished_at\":null,\"attempts\":0,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"running\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":null,\"attempts\":1,\"cancel_requested\":false,\"stats\":null,\"error\":null}\n\nevent: stats\ndata: {\"id\":\"f341ef2b-7af1-4567-99ad-1a3e3cfb0529\",\"seed\":\"https://crawler-test.com/\",\"state\":\"finished\",\"config\":{\"timeout\":10.0,\"max_bytes\":5000000,\"max_pages\":25,\"concurrency\":5,\"respect_robots\":true},\"created_at\":\"2026-09-12T17:41:13.607725Z\",\"started_at\":\"2026-09-12T17:41:14.386774Z\",\"finished_at\":\"2026-09-12T17:41:15.695764Z\",\"attempts\":1,\"cancel_requested\":false,\"stats\":{\"retries\":0,\"pages_ok\":25,\"redirects\":0,\"links_found\":431,\"pages_total\":25,\"pages_failed\":{},\"elapsed_seconds\":1.291,\"duplicates_dropped\":21,\"pages_without_links\":5},\"error\":null}\n\nevent: end\ndata: {}"
         }
       ]
     },
@@ -580,10 +594,11 @@
             "{{crawlId}}"
           ]
         },
-        "description": "A request, not a kill. A queued crawl aborts outright. A running one stops at its worker's next heartbeat and keeps the pages it already wrote. A finished one is returned unchanged."
+        "description": "A request, not a kill. A queued crawl aborts outright. A running one stops at its worker's next heartbeat and keeps the pages it already wrote. A finished one is returned unchanged.\n\n---\n\n### Example responses, captured from a live run\n\n**202 aborted**\n\n```json\n{\n  \"id\": \"f2b70430-e364-4f14-86cb-f919d0ebfdef\",\n  \"state\": \"aborted\"\n}\n```"
       },
       "response": [
         {
+          "id": "ada6d380-67dd-570e-b14c-fbefc677227f",
           "name": "202 aborted",
           "originalRequest": {
             "method": "DELETE",
@@ -597,7 +612,8 @@
                 "crawls",
                 "{{crawlId}}"
               ]
-            }
+            },
+            "description": "A request, not a kill. A queued crawl aborts outright. A running one stops at its worker's next heartbeat and keeps the pages it already wrote. A finished one is returned unchanged.\n\n---\n\n### Example responses, captured from a live run\n\n**202 aborted**\n\n```json\n{\n  \"id\": \"f2b70430-e364-4f14-86cb-f919d0ebfdef\",\n  \"state\": \"aborted\"\n}\n```"
           },
           "status": "Accepted",
           "code": 202,
@@ -609,7 +625,7 @@
             }
           ],
           "cookie": [],
-          "body": "{\n  \"id\": \"62f86636-11f6-47f6-a7fa-d8a3f30b9c17\",\n  \"state\": \"aborted\"\n}"
+          "body": "{\n  \"id\": \"f2b70430-e364-4f14-86cb-f919d0ebfdef\",\n  \"state\": \"aborted\"\n}"
         }
       ]
     }

@@ -61,6 +61,9 @@ make test-service   # 84 tests against crawler_test; the suite migrates it itsel
   - Eight collection variables carry every tunable value: `baseUrl`, `crawlId`, `seed`, `maxPages`,
     `concurrency`, `pageLimit`, `afterSeq` and `privateSeed`. Edit them in one place rather than in
     each request. Insomnia imports them as a base environment but drops their descriptions.
+  - Each response is stored twice: as a Postman example, under the Examples dropdown on the
+    request, and inside the request's own description. Insomnia's importer reads descriptions but
+    discards examples, so the second copy is what makes the results visible there.
 
 ## Worked examples
 
